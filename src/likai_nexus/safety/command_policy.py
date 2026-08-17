@@ -1,4 +1,4 @@
-"""Bash 命令策略：只允许有限的本地检查命令，并拒绝组合、网络和破坏性语法。"""
+"""Bash 命令策略：为 BashTool 解析并限制本地检查命令，拒绝组合、网络和破坏性语法。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,26 @@ from pathlib import PurePosixPath
 
 from ..errors import CommandDeniedError, ValidationError
 
-_META = (";", "&&", "||", "|", ">", "<", "`", "\n", "\r", "$(", "${")
+# 作用：阻断会让原始字符串重新进入 Shell 解释器的语法；Bash 工具随后只执行 argv。
+_META = (
+    ";",
+    "&&",
+    "||",
+    "|",
+    ">",
+    "<",
+    "`",
+    "\n",
+    "\r",
+    "$",
+    "{",
+    "}",
+    "*",
+    "?",
+    "[",
+    "]",
+    "~",
+)
 _NETWORK_COMMANDS = {"curl", "wget", "nc", "ncat", "ssh", "scp", "sftp", "telnet", "ftp"}
 _DANGEROUS_GIT = {"clone", "fetch", "pull", "push", "remote", "submodule"}
 _SAFE_OPTION = {"-a", "-l", "-la", "-al", "-n", "-i", "-L", "--files", "--short"}
@@ -22,6 +41,7 @@ class CommandDecision:
     allowed: bool
     executable: str
     reason: str
+    argv: tuple[str, ...] = ()
 
 
 class CommandPolicy:
@@ -63,7 +83,12 @@ class CommandPolicy:
             validator(tokens[1:])
         except (CommandDeniedError, ValidationError) as exc:
             return CommandDecision(False, executable, str(exc))
-        return CommandDecision(True, executable, "命令通过最小允许列表，仍需要人工审批")
+        return CommandDecision(
+            True,
+            executable,
+            "命令通过最小允许列表，仍需要人工审批",
+            tuple(tokens),
+        )
 
     def check(self, command: object) -> CommandDecision:
         """校验命令，失败时抛出带具体命令原因的拒绝异常。"""

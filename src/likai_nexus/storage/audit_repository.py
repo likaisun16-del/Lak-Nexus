@@ -1,4 +1,4 @@
-"""审计仓储：记录每次工具调用和审批决定，参数与摘要进入数据库前已脱敏。"""
+"""审计仓储：为 ToolExecutor 持久化工具调用和审批决定，入库参数与摘要必须已脱敏。"""
 
 from __future__ import annotations
 
@@ -17,22 +17,24 @@ class AuditRepository:
 
     def start_tool_call(
         self, task_id: str, tool_call_id: str, tool_name: str, arguments_redacted: str
-    ) -> None:
+    ) -> str:
         """记录工具调用开始，未知工具也必须先留下审计记录。"""
 
+        audit_id = uuid.uuid4().hex
         with self.database.connection() as connection:
             connection.execute(
                 """
                 INSERT INTO tool_calls(
-                    tool_call_id, task_id, tool_name, arguments_redacted, status, started_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    audit_id, task_id, tool_name, tool_call_id, arguments_redacted, status, started_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (tool_call_id, task_id, tool_name, arguments_redacted, "running", utc_now()),
+                (audit_id, task_id, tool_name, tool_call_id, arguments_redacted, "running", utc_now()),
             )
+        return audit_id
 
     def finish_tool_call(
         self,
-        tool_call_id: str,
+        audit_id: str,
         *,
         status: str,
         result_summary: str | None = None,
@@ -46,7 +48,7 @@ class AuditRepository:
                 """
                 UPDATE tool_calls
                 SET status = ?, finished_at = ?, result_summary = ?, error_type = ?, error_message = ?
-                WHERE tool_call_id = ?
+                WHERE audit_id = ?
                 """,
                 (
                     status,
@@ -54,11 +56,11 @@ class AuditRepository:
                     result_summary,
                     error_type,
                     error_message,
-                    tool_call_id,
+                    audit_id,
                 ),
             )
             if cursor.rowcount != 1:
-                raise KeyError(f"工具审计更新失败：调用记录不存在：{tool_call_id}")
+                raise KeyError(f"工具审计更新失败：审计记录不存在：{audit_id}")
 
     def record_approval(
         self,

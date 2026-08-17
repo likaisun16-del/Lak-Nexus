@@ -1,8 +1,9 @@
-"""SQLite 基础设施：创建最小审计表并提供带事务的连接上下文。"""
+"""SQLite 基础设施：为任务、ToolExecutor 和审计仓储创建表，并提供带事务的连接上下文。"""
 
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,6 +20,7 @@ class Database:
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as connection:
+            self._migrate_tool_calls(connection)
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -33,16 +35,18 @@ class Database:
                     error_message TEXT
                 );
                 CREATE TABLE IF NOT EXISTS tool_calls (
-                    tool_call_id TEXT PRIMARY KEY,
+                    audit_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL REFERENCES tasks(task_id),
                     tool_name TEXT NOT NULL,
+                    tool_call_id TEXT NOT NULL,
                     arguments_redacted TEXT NOT NULL,
                     status TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     finished_at TEXT,
                     result_summary TEXT,
                     error_type TEXT,
-                    error_message TEXT
+                    error_message TEXT,
+                    UNIQUE(task_id, tool_call_id)
                 );
                 CREATE TABLE IF NOT EXISTS approvals (
                     approval_id TEXT PRIMARY KEY,
@@ -55,6 +59,59 @@ class Database:
                 );
                 """
             )
+
+    @staticmethod
+    def _migrate_tool_calls(connection: sqlite3.Connection) -> None:
+        """把旧版供应商调用 ID 主键迁移为内部审计主键加任务内唯一约束。"""
+
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(tool_calls)").fetchall()
+        }
+        if not columns or "audit_id" in columns:
+            return
+        connection.execute("ALTER TABLE tool_calls RENAME TO tool_calls_legacy")
+        connection.executescript(
+            """
+            CREATE TABLE tool_calls (
+                audit_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                tool_name TEXT NOT NULL,
+                tool_call_id TEXT NOT NULL,
+                arguments_redacted TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                result_summary TEXT,
+                error_type TEXT,
+                error_message TEXT,
+                UNIQUE(task_id, tool_call_id)
+            );
+            """
+        )
+        rows = connection.execute("SELECT * FROM tool_calls_legacy").fetchall()
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO tool_calls(
+                    audit_id, task_id, tool_name, tool_call_id, arguments_redacted,
+                    status, started_at, finished_at, result_summary, error_type, error_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    row[1],
+                    row[2],
+                    row[0],
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                    row[8],
+                    row[9],
+                ),
+            )
+        connection.execute("DROP TABLE tool_calls_legacy")
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:

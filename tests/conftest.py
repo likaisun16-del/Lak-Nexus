@@ -1,4 +1,4 @@
-"""测试夹具：创建隔离工作区、SQLite 数据库和完整 ToolExecutor 依赖。"""
+"""测试夹具：为工具、Agent Loop 和存储测试创建隔离工作区及完整 ToolExecutor 依赖。"""
 
 from __future__ import annotations
 
@@ -28,9 +28,9 @@ def settings(tmp_path: Path) -> Settings:
         max_output_bytes=256,
         max_read_lines=20,
         max_read_bytes=256,
-        # Windows 的 WSL bash 启动通常超过 2 秒，测试需覆盖真实可用的 Bash 兼容环境。
-        default_bash_timeout_seconds=5,
-        max_bash_timeout_seconds=10,
+        # Windows 的 Git Bash 启动可能受系统负载影响，测试需覆盖真实可用的 Bash 兼容环境。
+        default_bash_timeout_seconds=10,
+        max_bash_timeout_seconds=20,
         max_turns=5,
     )
 

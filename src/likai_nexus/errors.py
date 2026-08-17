@@ -1,4 +1,4 @@
-"""错误类型定义：为配置、安全、工具、模型和任务状态提供可识别的失败语义。"""
+"""错误类型定义：为配置、安全、工具、模型和任务状态提供可识别语义，供各层统一捕获。"""
 
 
 class NexusError(Exception):
@@ -27,6 +27,10 @@ class ApprovalDeniedError(NexusError):
 
 class ToolExecutionError(NexusError):
     """具体工具执行失败。"""
+
+
+class AuditError(NexusError):
+    """审计记录失败，必须阻止任务继续伪装成成功。"""
 
 
 class ModelBackendError(NexusError):

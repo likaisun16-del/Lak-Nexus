@@ -29,6 +29,8 @@ class OpenAICompatibleBackend:
         tools: Sequence[ToolSpec],
         cancel_event: asyncio.Event | None = None,
     ) -> AssistantTurn:
+        """发起一次有超时的同步 HTTP 请求；线程取消是尽力而为，结果返回前仍检查取消信号。"""
+
         if cancel_event and cancel_event.is_set():
             raise asyncio.CancelledError
         payload = {

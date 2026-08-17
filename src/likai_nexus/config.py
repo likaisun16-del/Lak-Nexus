@@ -24,7 +24,7 @@ def _positive_int(value: str, name: str) -> int:
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
-    """读取项目根目录 .env，并在格式错误时报告具体行号。"""
+    """读取当前工作目录的 .env，并在格式错误时报告具体行号。"""
 
     if not path.is_file():
         return {}
@@ -78,7 +78,6 @@ class Settings:
     max_read_bytes: int = 64 * 1024
     max_turns: int = 20
     model_timeout_seconds: int = 60
-    allow_network_access: bool = False
     api_key: str | None = None
     model: str = "gpt-4o-mini"
     api_base_url: str = "https://api.openai.com/v1"
@@ -155,8 +154,6 @@ class Settings:
             model_timeout_seconds=_positive_int(
                 values.get("MODEL_TIMEOUT_SECONDS", "60"), "MODEL_TIMEOUT_SECONDS"
             ),
-            allow_network_access=values.get("ALLOW_NETWORK_ACCESS", "false").lower()
-            == "true",
             api_key=values.get("OPENAI_API_KEY"),
             model=values.get("MODEL", "gpt-4o-mini"),
             api_base_url=values.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),

@@ -76,14 +76,16 @@
 - 只审查，不修改业务代码。
 - 阅读计划、代码 diff 和测试结果。
 - 检查逻辑、边界、安全、异常、权限和测试覆盖。
-- 将审查结果写入 `docs/REVIEW.md`。
+- 所有 Review 阶段产物统一放入 `docs/Review/` 目录，包括审查报告、复审记录、架构图、用例图和截图；不得再在 `docs/` 根目录创建 `REVIEW*` 文件。
+- 默认主审查报告为 `docs/Review/REVIEW.md`；需要保留多轮审查时，在 `docs/Review/` 内使用含阶段或日期的清晰文件名。
+- Reviewer 默认只允许新增或修改 `docs/Review/` 目录中的内容，不得修改业务代码、测试、配置或其他目录；只有用户明确要求修改本约束本身时，才可再次修改 `AGENTS.md`。
 - 最后给出 `PASS` 或 `CHANGES_REQUIRED`。
 
 ### Fixer：修复者
 
 职责：
 
-- 只处理 `docs/REVIEW.md` 中确认的问题。
+- 只处理 `docs/Review/REVIEW.md` 中确认的问题。
 - 不进行无关重构。
 - 修复后必须重新运行相关测试。
 - 必要时请求 Reviewer 再次审查。

@@ -1,4 +1,4 @@
-"""read 工具：在工作区内分页读取 UTF-8 文本，并限制行数和返回字节数。"""
+"""read 工具：由 ToolExecutor 通过 WorkspacePathResolver 分页读取 UTF-8 文本并限制返回字节数。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from ...errors import ToolExecutionError, ValidationError
 from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import WorkspacePathResolver
-from ...safety.redaction import truncate_text
 from ..base import ToolOutput
 from .common import require_arguments, require_string
 
@@ -26,6 +25,7 @@ class ReadFileTool:
             "properties": {
                 "path": {"type": "string", "description": "相对工作区路径"},
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "byte_offset": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "default": 2000},
             },
             "required": ["path"],
@@ -42,16 +42,24 @@ class ReadFileTool:
         values = require_arguments(arguments, self.name)
         require_string(values, "path", self.name)
         offset = values.get("offset", 0)
+        byte_offset = values.get("byte_offset", 0)
         limit = values.get("limit", self.max_lines)
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValidationError("工具 read 参数校验失败：offset 必须是大于等于 0 的整数")
+        if isinstance(byte_offset, bool) or not isinstance(byte_offset, int) or byte_offset < 0:
+            raise ValidationError("工具 read 参数校验失败：byte_offset 必须是大于等于 0 的整数")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValidationError("工具 read 参数校验失败：limit 必须是大于 0 的整数")
         if limit > self.max_lines:
             raise ValidationError(
                 f"工具 read 参数校验失败：limit={limit} 超过单次上限 {self.max_lines}"
             )
-        return {"path": values["path"], "offset": offset, "limit": limit}
+        return {
+            "path": values["path"],
+            "offset": offset,
+            "byte_offset": byte_offset,
+            "limit": limit,
+        }
 
     def check_safety(self, arguments: dict[str, Any]) -> None:
         self.resolver.resolve(arguments["path"], require_exists=True, file_only=True)
@@ -64,8 +72,11 @@ class ReadFileTool:
     ) -> ToolOutput:
         resolved = self.resolver.resolve(arguments["path"], require_exists=True, file_only=True)
         try:
-            content, next_offset, truncated, bytes_read = self._read(
-                resolved.path, arguments["offset"], arguments["limit"]
+            content, next_offset, next_byte_offset, truncated, bytes_read = self._read(
+                resolved.path,
+                arguments["offset"],
+                arguments["byte_offset"],
+                arguments["limit"],
             )
         except UnicodeDecodeError as exc:
             raise ToolExecutionError(
@@ -76,43 +87,88 @@ class ReadFileTool:
                 f"读取文件失败：目标 {resolved.relative_path}，原因：{type(exc).__name__}: {exc}"
             ) from exc
         if truncated:
-            content += f"\n[内容已截断：请使用 offset={next_offset} 继续读取]"
-        content, _ = truncate_text(content, self.max_bytes)
+            content += (
+                f"\n[内容已截断：请使用 offset={next_offset}, "
+                f"byte_offset={next_byte_offset} 继续读取]"
+            )
         return ToolOutput(
             content=content,
             metadata={
                 "path": resolved.relative_path,
                 "offset": arguments["offset"],
+                "byte_offset": arguments["byte_offset"],
                 "next_offset": next_offset,
+                "next_byte_offset": next_byte_offset,
                 "truncated": truncated,
                 "bytes": bytes_read,
             },
         )
 
-    def _read(self, path, offset: int, limit: int) -> tuple[str, int, bool, int]:
-        lines: list[str] = []
+    def _read(
+        self, path, offset: int, byte_offset: int, limit: int
+    ) -> tuple[str, int, int, bool, int]:
+        chunks: list[bytes] = []
         bytes_read = 0
-        current_offset = offset
+        next_offset = offset
+        next_byte_offset = byte_offset
         truncated = False
-        with path.open("r", encoding="utf-8", newline="") as file:
-            for _ in range(offset):
-                if file.readline() == "":
-                    return "", offset, False, 0
-            while len(lines) < limit:
-                line = file.readline()
-                if line == "":
-                    break
-                encoded = line.encode("utf-8")
-                remaining = self.max_bytes - bytes_read
-                if len(encoded) > remaining:
-                    if remaining > 0:
-                        lines.append(encoded[:remaining].decode("utf-8", errors="ignore"))
-                        bytes_read += len(lines[-1].encode("utf-8"))
+        lines_read = 0
+        with path.open("rb") as file:
+            for line_number, raw_line in enumerate(file):
+                if line_number < offset:
+                    continue
+                start = byte_offset if line_number == offset else 0
+                if start >= len(raw_line):
+                    next_offset = line_number + 1
+                    next_byte_offset = 0
+                    continue
+                raw_line = raw_line[start:]
+                if lines_read >= limit:
                     truncated = True
+                    next_offset = line_number
+                    next_byte_offset = 0
                     break
-                lines.append(line)
-                bytes_read += len(encoded)
-                current_offset += 1
-            if not truncated and len(lines) >= limit and file.readline() != "":
-                truncated = True
-        return "".join(lines), current_offset, truncated, bytes_read
+                remaining = self.max_bytes - bytes_read
+                if remaining <= 0:
+                    truncated = True
+                    next_offset = line_number
+                    next_byte_offset = start
+                    break
+                prefix, was_cut = self._safe_utf8_prefix(raw_line, remaining)
+                chunks.append(prefix)
+                bytes_read += len(prefix)
+                if was_cut:
+                    truncated = True
+                    next_offset = line_number
+                    next_byte_offset = start + len(prefix)
+                    break
+                lines_read += 1
+                next_offset = line_number + 1
+                next_byte_offset = 0
+                if lines_read >= limit:
+                    if file.readline():
+                        truncated = True
+                    break
+        return (
+            b"".join(chunks).decode("utf-8"),
+            next_offset,
+            next_byte_offset,
+            truncated,
+            bytes_read,
+        )
+
+    @staticmethod
+    def _safe_utf8_prefix(data: bytes, max_bytes: int) -> tuple[bytes, bool]:
+        """截取完整 UTF-8 前缀，并保证超长单行的游标始终前进。"""
+
+        if len(data) <= max_bytes:
+            return data, False
+        candidate = data[:max_bytes]
+        while candidate:
+            try:
+                candidate.decode("utf-8")
+                return candidate, True
+            except UnicodeDecodeError:
+                candidate = candidate[:-1]
+        first_character = data.decode("utf-8")[0]
+        return first_character.encode("utf-8"), True

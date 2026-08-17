@@ -82,6 +82,10 @@ class AgentLoop:
                 task_id, TaskStatus.CANCELLED, error_type="CancelledError", error_message=message
             )
             return AgentResult(task_id, TaskStatus.CANCELLED, error_message=message)
+        except Exception as exc:  # noqa: BLE001
+            message = redact_text(f"任务执行失败：{type(exc).__name__}: {exc}")
+            self._mark_failed(task_id, type(exc).__name__, message)
+            return AgentResult(task_id, TaskStatus.FAILED, error_message=message)
 
     async def _run_turns(
         self, task_id: str, messages: list[ChatMessage], cancel_event: asyncio.Event
@@ -114,7 +118,19 @@ class AgentLoop:
             for tool_call in turn.tool_calls:
                 if cancel_event.is_set():
                     return self._cancel(task_id)
-                result = await self.executor.execute(task_id, tool_call, cancel_event)
+                try:
+                    result = await self.executor.execute(task_id, tool_call, cancel_event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    message = redact_text(
+                        f"工具调用失败：轮次 {turn_number}，工具 {tool_call.name}，"
+                        f"原因：{type(exc).__name__}: {exc}"
+                    )
+                    self._mark_failed(task_id, type(exc).__name__, message)
+                    return AgentResult(
+                        task_id, TaskStatus.FAILED, error_message=message, turns=turn_number
+                    )
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -128,6 +144,17 @@ class AgentLoop:
             task_id, TaskStatus.FAILED, error_type="MaxTurnsExceeded", error_message=message
         )
         return AgentResult(task_id, TaskStatus.FAILED, error_message=message, turns=self.max_turns)
+
+    def _mark_failed(self, task_id: str, error_type: str, message: str) -> None:
+        """尽力把未预期异常落为 failed，避免任务长期停留在 running。"""
+
+        try:
+            self.task_store.set_status(
+                task_id, TaskStatus.FAILED, error_type=error_type, error_message=message
+            )
+        except Exception:  # noqa: BLE001
+            # 原始错误已经返回给调用方；状态库故障不能再次覆盖该报错点。
+            return
 
     def _cancel(self, task_id: str) -> AgentResult:
         message = "任务已取消：收到取消信号，未继续执行后续工具"

@@ -3,7 +3,7 @@
 
 ## 本地运行
 
-项目启动时会自动读取项目根目录的 `.env` 文件，已有的进程环境变量会覆盖 `.env` 中的同名配置。
+项目启动时会自动读取当前工作目录的 `.env` 文件，已有的进程环境变量会覆盖 `.env` 中的同名配置。
 
 ```powershell
 Set-Location "D:\Desktop\Code\Lak-Nexus"

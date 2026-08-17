@@ -1,4 +1,4 @@
-"""Bash 与模型协议测试：覆盖命令执行摘要、超时路径和 OpenAI 响应转换。"""
+"""Bash 与模型协议测试：验证 BashTool 的执行边界，并关联 OpenAI Backend 的协议转换。"""
 
 from __future__ import annotations
 
@@ -101,8 +101,32 @@ def test_bash_timeout_terminates_process(settings) -> None:
         )
         return await tool._communicate(process, 1, None)
 
-    _, _, reason = run(scenario())
+    _, _, reason, _ = run(scenario())
     assert reason == "timeout"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="当前环境没有 Bash")
+def test_bash_cancellation_terminates_running_process(settings) -> None:
+    from likai_nexus.safety.command_policy import CommandPolicy
+
+    tool = BashTool(settings, CommandPolicy())
+
+    async def scenario():
+        process = await asyncio.create_subprocess_exec(
+            shutil.which("bash"),
+            "-lc",
+            "sleep 2",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        cancel = asyncio.Event()
+        communication = asyncio.create_task(tool._communicate(process, 10, cancel))
+        await asyncio.sleep(0.05)
+        cancel.set()
+        return await communication
+
+    _, _, reason, _ = run(scenario())
+    assert reason == "cancelled"
 
 
 def test_openai_message_payload_keeps_tool_calls() -> None:

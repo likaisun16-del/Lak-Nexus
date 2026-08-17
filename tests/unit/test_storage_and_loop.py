@@ -1,4 +1,4 @@
-"""存储与 Agent Loop 测试：验证幂等、状态恢复、工具回填和模型失败。"""
+"""存储与 Agent Loop 测试：关联 TaskRepository、AuditRepository 和 ToolExecutor，验证任务生命周期。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,23 @@ def test_task_id_is_idempotent(runtime) -> None:
     _, _, tasks, _, _, _ = runtime
     assert tasks.create("same", "first")
     assert not tasks.create("same", "second")
-    assert tasks.get("same")["request_text"] == "first"
+    assert "任务请求：字节数=5，sha256=" in tasks.get("same")["request_text"]
+
+
+def test_provider_tool_call_id_is_unique_per_task_not_globally(runtime) -> None:
+    settings, _, tasks, audit, _, executor = runtime
+    (settings.workspace_root / "same.txt").write_text("same", encoding="utf-8")
+    tasks.create("task-a", "read a")
+    tasks.create("task-b", "read b")
+    call = ToolCall("provider-call-1", "read", {"path": "same.txt"})
+
+    first = run(executor.execute("task-a", call))
+    second = run(executor.execute("task-b", call))
+
+    assert not first.is_error
+    assert not second.is_error
+    assert len(audit.list_tool_calls("task-a")) == 1
+    assert len(audit.list_tool_calls("task-b")) == 1
 
 
 def test_running_tasks_are_recovered(runtime) -> None:
@@ -83,6 +99,57 @@ def test_agent_loop_honors_cancellation(runtime) -> None:
     assert result.status is TaskStatus.CANCELLED
     assert backend.call_count == 0
     assert tasks.get("loop-cancel")["status"] == TaskStatus.CANCELLED.value
+
+
+def test_agent_loop_cancels_backend_that_is_already_running(runtime) -> None:
+    _, _, tasks, _, _, executor = runtime
+
+    class BlockingBackend:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+
+        async def complete(self, messages, tools, cancel_event=None):
+            self.started.set()
+            await cancel_event.wait()
+            raise asyncio.CancelledError
+
+    async def scenario():
+        cancel = asyncio.Event()
+        backend = BlockingBackend()
+        running = asyncio.create_task(
+            AgentLoop(backend, executor, tasks).run(
+                "运行中取消", task_id="loop-running-cancel", cancel_event=cancel
+            )
+        )
+        await backend.started.wait()
+        cancel.set()
+        return await running
+
+    result = run(scenario())
+
+    assert result.status is TaskStatus.CANCELLED
+    assert tasks.get("loop-running-cancel")["status"] == TaskStatus.CANCELLED.value
+
+
+def test_agent_loop_fails_terminally_when_tool_audit_rejects_duplicate_id(runtime) -> None:
+    settings, _, tasks, audit, _, executor = runtime
+    (settings.workspace_root / "duplicate.txt").write_text("ok", encoding="utf-8")
+    backend = FakeModelBackend(
+        [
+            AssistantTurn("", (ToolCall("same-call", "read", {"path": "duplicate.txt"}),)),
+            AssistantTurn("", (ToolCall("same-call", "read", {"path": "duplicate.txt"}),)),
+        ]
+    )
+
+    result = run(
+        AgentLoop(backend, executor, tasks, max_turns=5).run(
+            "重复调用编号", task_id="loop-duplicate-call"
+        )
+    )
+
+    assert result.status is TaskStatus.FAILED
+    assert tasks.get("loop-duplicate-call")["status"] == TaskStatus.FAILED.value
+    assert len(audit.list_tool_calls("loop-duplicate-call")) == 1
 
 
 def test_agent_loop_stops_after_max_turns(runtime) -> None:

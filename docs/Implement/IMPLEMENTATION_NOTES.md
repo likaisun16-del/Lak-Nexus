@@ -10,7 +10,7 @@
 - 实现可替换 `ModelBackend`、Fake Backend、OpenAI 兼容后端和最小 Agent Loop。
 - 实现本地 CLI 入口及 Ctrl+C 取消处理。
 - 增加运行时组装层，保持 CLI 和 Agent Loop 不直接耦合具体模型或 SQLite 实现。
-- 配置入口自动读取项目根目录 `.env`，并让进程环境变量覆盖文件配置。
+- 配置入口自动读取当前工作目录 `.env`，并让进程环境变量覆盖文件配置。
 - 补充安全、工具、存储、Agent Loop、模型协议和 CLI 集成测试。
 
 ## 实现取舍
@@ -38,3 +38,26 @@ py -3.12 -m venv .venv
 ```
 
 其中 1 个跳过项是当前 Windows 权限不允许创建符号链接；其余 39 项测试全部通过。
+
+## Review 修复记录
+
+依据 `docs/Review/REVIEW.md` 的 `CHANGES_REQUIRED` 结论完成以下修复：
+
+- Bash 命令只使用策略解析后的 argv，禁用 profile/rc、Shell 展开和敏感环境变量，并以并发有界流读取 stdout/stderr；补充变量、brace、glob、超时和运行中取消测试。
+- 文件工具默认拒绝 `.env*`、私钥和凭据文件；任务请求、工具参数、审批记录和工具结果改为长度、路径、动作和 sha256 摘要，避免正文进入 SQLite。
+- 工具审计改用内部 `audit_id`，并将供应商 `tool_call_id` 限制在任务内唯一；审计异常会补写失败终态并交给 Agent Loop 终结任务。
+- `read` 增加“行号 + 行内字节偏移”游标，支持超长 ASCII 和多字节 UTF-8 行继续读取。
+- write/edit 审批增加受限预览或 diff、内容摘要、目标状态摘要和审批指纹；执行前检测动作或目标状态漂移。
+- 删除未接线配置开关，明确 `.env` 使用当前工作目录语义；模型阻塞 HTTP 的取消行为明确为 best-effort，并补充运行中取消验证。
+
+本轮修改只涉及实现、测试、配置说明和实现交接文档；未读取或提交真实 `.env` 内容。
+
+## 本轮复审前验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q：55 passed，1 skipped
+.\.venv\Scripts\python.exe -m ruff check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过
+git check-ignore -v --no-index .env：命中 .gitignore:1:.env，文件未被 Git 跟踪
+```

@@ -1,4 +1,4 @@
-"""edit 工具：经审批后对已有 UTF-8 文件执行唯一精确替换并返回受限 diff。"""
+"""edit 工具：由 ToolExecutor 审批后在 WorkspacePathResolver 范围内替换 UTF-8 文件并返回受限 diff。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ...errors import ToolExecutionError, ValidationError
 from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import ResolvedPath, WorkspacePathResolver
-from ...safety.redaction import truncate_text
+from ...safety.redaction import action_fingerprint, content_sha256, redact_text, truncate_text
 from ..base import ToolOutput
 from .common import atomic_write, require_arguments, require_string
 
@@ -57,18 +57,51 @@ class EditFileTool:
         try:
             text, _ = self._read_text(resolved)
             normalized_old = self._normalize_newlines(arguments["old_text"], text)
+            normalized_new = self._normalize_newlines(arguments["new_text"], text)
             matches = text.count(normalized_old)
         except (OSError, UnicodeDecodeError) as exc:
             matches = 0
             reason = f"，预览失败：{type(exc).__name__}"
+            source_hash = f"[读取失败:{type(exc).__name__}]"
+            diff_preview = "[无法生成修改预览]"
+            result_hash = "[不可用]"
         else:
             reason = f"，当前精确匹配次数：{matches}"
+            source_hash = content_sha256(text)
+            if matches == 1:
+                updated = text.replace(normalized_old, normalized_new, 1)
+                result_hash = content_sha256(updated)
+                diff_preview, diff_truncated = truncate_text(
+                    redact_text(self._build_diff(text, updated)), 512
+                )
+                if diff_truncated:
+                    diff_preview += "（diff 已截断）"
+            else:
+                result_hash = "[不可用]"
+                diff_preview = "[当前无法形成唯一修改块]"
+        action_data = {
+            "path": resolved.relative_path,
+            "source_sha256": source_hash,
+            "result_sha256": result_hash,
+            "old_text_sha256": content_sha256(arguments["old_text"]),
+            "new_text_sha256": content_sha256(arguments["new_text"]),
+            "matches": matches,
+        }
         diff_summary = "diff 摘要：将替换唯一匹配块" if matches == 1 else "diff 摘要：当前无法形成唯一修改块"
         return ApprovalRequest(
             action_type="edit",
             summary=(
                 f"修改工作区文件 {resolved.relative_path}，替换文本长度 "
-                f"{len(arguments['old_text'])} -> {len(arguments['new_text'])}{reason}，{diff_summary}"
+                f"{len(arguments['old_text'])} -> {len(arguments['new_text'])}{reason}，{diff_summary}，"
+                f"old sha256={content_sha256(arguments['old_text'])}，"
+                f"new sha256={content_sha256(arguments['new_text'])}，预览：{diff_preview}"
+            ),
+            fingerprint=action_fingerprint(action_data),
+            audit_summary=(
+                f"修改 {resolved.relative_path}：匹配数={matches}，"
+                f"原文件 sha256={source_hash}，结果 sha256={result_hash}，"
+                f"old sha256={content_sha256(arguments['old_text'])}，"
+                f"new sha256={content_sha256(arguments['new_text'])}"
             ),
         )
 
@@ -100,14 +133,7 @@ class EditFileTool:
         updated = text.replace(old_text, new_text, 1)
         data = bom + updated.encode("utf-8")
         atomic_write(resolved.path, data, resolved.relative_path)
-        diff = "".join(
-            difflib.unified_diff(
-                text.splitlines(keepends=True),
-                updated.splitlines(keepends=True),
-                fromfile=f"a/{resolved.relative_path}",
-                tofile=f"b/{resolved.relative_path}",
-            )
-        )
+        diff = self._build_diff(text, updated, resolved.relative_path)
         diff, truncated = truncate_text(diff, self.diff_limit_bytes)
         return ToolOutput(
             content=f"已修改文件：{resolved.relative_path}\n{diff}",
@@ -129,3 +155,16 @@ class EditFileTool:
     def _normalize_newlines(value: str, original: str) -> str:
         newline = "\r\n" if "\r\n" in original else "\n"
         return value.replace("\r\n", "\n").replace("\n", newline)
+
+    @staticmethod
+    def _build_diff(original: str, updated: str, relative_path: str = "file") -> str:
+        """集中生成审批预览和执行结果使用的受限 diff。"""
+
+        return "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                updated.splitlines(keepends=True),
+                fromfile=f"a/{relative_path}",
+                tofile=f"b/{relative_path}",
+            )
+        )

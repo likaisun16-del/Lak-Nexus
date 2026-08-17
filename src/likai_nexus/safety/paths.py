@@ -1,4 +1,4 @@
-"""工作区路径安全：解析相对路径、符号链接和 ..，阻止文件工具越出根目录。"""
+"""工作区路径安全：供四个文件工具共享，解析相对路径并阻止符号链接、越界和敏感文件访问。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..errors import PathAccessError, ToolExecutionError, ValidationError
+
+_SENSITIVE_NAMES = {
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "credentials",
+    "credentials.json",
+    "secrets",
+    "secrets.json",
+    "id_rsa",
+    "id_ed25519",
+}
+_SENSITIVE_SUFFIXES = (".pem", ".p12", ".pfx", ".key")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +73,27 @@ class WorkspacePathResolver:
             raise PathAccessError(f"路径访问被拒绝：不允许通过符号链接写入：{raw_path!r}")
         exists = resolved.exists()
         relative = self._relative(resolved)
+        if self._is_sensitive_path(resolved):
+            raise PathAccessError(
+                f"路径访问被拒绝：目标 {relative} 可能包含密钥或凭据，默认禁止工具访问"
+            )
         if require_exists and not exists:
             raise ToolExecutionError(f"文件操作失败：目标不存在：{relative}")
         if file_only and exists and not resolved.is_file():
             raise ToolExecutionError(f"文件操作失败：目标不是普通文件：{relative}")
         return ResolvedPath(resolved, relative, exists)
+
+    @staticmethod
+    def _is_sensitive_path(path: Path) -> bool:
+        """默认拒绝环境文件、私钥和凭据文件，避免工具把密钥送入模型上下文。"""
+
+        for part in path.parts:
+            name = part.lower()
+            if name.startswith(".env"):
+                return True
+            if name in _SENSITIVE_NAMES or name.endswith(_SENSITIVE_SUFFIXES):
+                return True
+        return False
 
     def _relative(self, path: Path) -> str:
         try:

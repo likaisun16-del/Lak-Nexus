@@ -785,7 +785,6 @@ docs/Planner/
 禁止的工作：
 
 - 修改 `src/`、`tests/` 或任何业务代码。
-- 修改 `docs/PLAN.md`、`docs/DECISIONS.md`、`docs/REVIEW.md`。
+- 修改 `docs/PLAN.md`、`docs/DECISIONS.md`、`docs/Review/` 中的审查产物。
 - 修改项目配置、环境文件或脚本。
 - 在 `docs/Planner/` 以外创建或修改文件。
-

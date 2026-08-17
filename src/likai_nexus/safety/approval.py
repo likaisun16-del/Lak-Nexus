@@ -13,6 +13,8 @@ class ApprovalRequest:
 
     action_type: str
     summary: str
+    fingerprint: str = ""
+    audit_summary: str = ""
 
 
 class ApprovalHandler(Protocol):

@@ -1,14 +1,14 @@
-"""工具执行总入口：按查找、校验、安全、审批、执行、审计顺序处理每次调用。"""
+"""工具执行总入口：被 AgentLoop 调用，串联 Registry、Safety、Approval 和 AuditRepository。"""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
 
-from ..errors import ApprovalDeniedError, NexusError
+from ..errors import ApprovalDeniedError, AuditError, NexusError
 from ..orchestrator.schemas import ToolCall, ToolResult
 from ..safety.approval import ApprovalHandler
-from ..safety.redaction import redact_arguments, redact_text
+from ..safety.redaction import action_fingerprint, content_sha256, redact_text
 from ..storage.audit_repository import AuditRepository
 from .registry import ToolRegistry
 
@@ -31,20 +31,28 @@ class ToolExecutor:
     ) -> ToolResult:
         """执行一次工具调用，所有可预期失败均回填标准错误结果。"""
 
-        redacted_arguments = redact_arguments(tool_call.arguments)
-        self.audit_repository.start_tool_call(
-            task_id, tool_call.id, tool_call.name, redacted_arguments
-        )
+        audit_arguments = self._audit_arguments(tool_call.name, tool_call.arguments)
+        audit_id = self._start_tool_call(task_id, tool_call, audit_arguments)
         tool = self.registry.get(tool_call.name)
         if tool is None:
             message = f"工具调用失败：未知工具 {tool_call.name!r}，当前只允许 read、write、edit、bash"
-            self.audit_repository.finish_tool_call(
-                tool_call.id,
-                status="failed",
-                result_summary=message,
-                error_type="UnknownTool",
-                error_message=message,
-            )
+            try:
+                self._finish_tool_call(
+                    audit_id,
+                    status="failed",
+                    result_summary=message,
+                    error_type="UnknownTool",
+                    error_message=message,
+                )
+            except AuditError as exc:
+                self._best_effort_finish(
+                    audit_id,
+                    status="failed",
+                    result_summary="未知工具审计失败：任务已终止",
+                    error_type=type(exc).__name__,
+                    error_message="未知工具审计失败：任务已终止",
+                )
+                raise
             return ToolResult(tool_call.id, message, is_error=True, metadata={"error_type": "UnknownTool"})
 
         try:
@@ -53,16 +61,24 @@ class ToolExecutor:
             approval = tool.approval_request(arguments)
             if approval is not None:
                 approved = await self.approvals.request(approval)
-                self.audit_repository.record_approval(
-                    task_id,
-                    tool_call.id,
-                    approval.action_type,
-                    redact_text(approval.summary),
-                    approved,
-                )
                 if not approved:
+                    self._record_approval(task_id, tool_call, approval, False)
                     raise ApprovalDeniedError(
                         f"工具 {tool.name} 执行被拒绝：用户未批准 {approval.action_type} 操作"
+                    )
+                refreshed = tool.approval_request(arguments)
+                if refreshed is None or refreshed.fingerprint != approval.fingerprint:
+                    self._record_approval(task_id, tool_call, approval, False)
+                    raise ApprovalDeniedError(
+                        f"工具 {tool.name} 执行被拒绝：审批后动作摘要发生变化，必须重新审批"
+                    )
+                self._record_approval(task_id, tool_call, refreshed, True)
+                arguments["_approved_fingerprint"] = refreshed.fingerprint
+                latest = tool.approval_request(arguments)
+                if latest is None or latest.fingerprint != refreshed.fingerprint:
+                    self._record_approval(task_id, tool_call, refreshed, False)
+                    raise ApprovalDeniedError(
+                        f"工具 {tool.name} 执行被拒绝：执行前目标状态发生变化，必须重新审批"
                     )
             output = await tool.execute(arguments, cancel_event)
             result = ToolResult(
@@ -72,8 +88,8 @@ class ToolExecutor:
                 metadata=output.metadata,
             )
             summary = self._audit_summary(tool.name, output.metadata, output.is_error)
-            self.audit_repository.finish_tool_call(
-                tool_call.id,
+            self._finish_tool_call(
+                audit_id,
                 status="failed" if output.is_error else "success",
                 result_summary=summary,
                 error_type="ToolExecutionError" if output.is_error else None,
@@ -81,20 +97,29 @@ class ToolExecutor:
             )
             return result
         except asyncio.CancelledError:
-            self.audit_repository.finish_tool_call(
-                tool_call.id,
+            self._finish_tool_call(
+                audit_id,
                 status="cancelled",
                 result_summary="工具调用已取消：任务收到取消信号",
                 error_type="CancelledError",
                 error_message="工具调用已取消：任务收到取消信号",
             )
             raise
+        except AuditError as exc:
+            self._best_effort_finish(
+                audit_id,
+                status="failed",
+                result_summary=redact_text(f"工具审计失败：{type(exc).__name__}"),
+                error_type=type(exc).__name__,
+                error_message="工具审计失败：任务已终止",
+            )
+            raise
         # 工具边界统一记录未知异常，保留工具名和调用 ID 以便审计定位。
         except Exception as exc:  # noqa: BLE001
             message = self._error_message(tool.name, exc)
             status = "rejected" if isinstance(exc, ApprovalDeniedError) else "failed"
-            self.audit_repository.finish_tool_call(
-                tool_call.id,
+            self._finish_tool_call(
+                audit_id,
                 status=status,
                 result_summary=message,
                 error_type=type(exc).__name__,
@@ -106,6 +131,101 @@ class ToolExecutor:
                 is_error=True,
                 metadata={"error_type": type(exc).__name__},
             )
+
+    def _start_tool_call(self, task_id: str, tool_call: ToolCall, arguments: str) -> str:
+        """启动审计失败时立即抛出系统错误，交给 Agent Loop 终结任务。"""
+
+        try:
+            return self.audit_repository.start_tool_call(
+                task_id, tool_call.id, tool_call.name, arguments
+            )
+        except Exception as exc:
+            raise AuditError(
+                f"工具审计启动失败：工具 {tool_call.name}，调用 {tool_call.id}，"
+                f"原因：{type(exc).__name__}"
+            ) from exc
+
+    def _finish_tool_call(self, audit_id: str, **kwargs: Any) -> None:
+        """审计结束失败不能被转换成普通工具错误，避免任务假装成功。"""
+
+        try:
+            self.audit_repository.finish_tool_call(audit_id, **kwargs)
+        except Exception as exc:
+            raise AuditError(
+                f"工具审计结束失败：审计记录 {audit_id}，原因：{type(exc).__name__}"
+            ) from exc
+
+    def _best_effort_finish(self, audit_id: str, **kwargs: Any) -> None:
+        """审计异常后尝试补写终态，补写失败仍由原始 AuditError 交给编排层。"""
+
+        try:
+            self.audit_repository.finish_tool_call(audit_id, **kwargs)
+        except Exception:  # noqa: BLE001
+            return
+
+    def _record_approval(
+        self, task_id: str, tool_call: ToolCall, approval, decision: bool
+    ) -> None:
+        """只保存审批动作的安全摘要，不把审批预览正文写入数据库。"""
+
+        try:
+            audit_summary = approval.audit_summary or (
+                f"动作类型={approval.action_type}，审批指纹={approval.fingerprint}"
+            )
+            self.audit_repository.record_approval(
+                task_id,
+                tool_call.id,
+                approval.action_type,
+                redact_text(audit_summary),
+                decision,
+            )
+        except Exception as exc:
+            raise AuditError(
+                f"审批审计写入失败：工具 {tool_call.name}，调用 {tool_call.id}，"
+                f"原因：{type(exc).__name__}"
+            ) from exc
+
+    @staticmethod
+    def _audit_arguments(tool_name: str, arguments: object) -> str:
+        """按工具投影审计参数，只保存路径、长度、动作和摘要哈希。"""
+
+        values = arguments if isinstance(arguments, dict) else {}
+        if tool_name == "read":
+            projection = {
+                "path": values.get("path"),
+                "offset": values.get("offset", 0),
+                "byte_offset": values.get("byte_offset", 0),
+                "limit": values.get("limit"),
+            }
+        elif tool_name == "write":
+            content = values.get("content")
+            projection = {
+                "path": values.get("path"),
+                "content_bytes": len(content.encode("utf-8")) if isinstance(content, str) else None,
+                "content_sha256": content_sha256(content) if isinstance(content, str) else None,
+            }
+        elif tool_name == "edit":
+            old_text = values.get("old_text")
+            new_text = values.get("new_text")
+            projection = {
+                "path": values.get("path"),
+                "old_text_bytes": len(old_text.encode("utf-8")) if isinstance(old_text, str) else None,
+                "new_text_bytes": len(new_text.encode("utf-8")) if isinstance(new_text, str) else None,
+                "old_text_sha256": content_sha256(old_text) if isinstance(old_text, str) else None,
+                "new_text_sha256": content_sha256(new_text) if isinstance(new_text, str) else None,
+            }
+        elif tool_name == "bash":
+            command = values.get("command")
+            projection = {
+                "command_sha256": content_sha256(command) if isinstance(command, str) else None,
+                "timeout_seconds": values.get("timeout_seconds"),
+            }
+        else:
+            projection = {
+                "keys": sorted(str(key) for key in values),
+                "value_types": {str(key): type(value).__name__ for key, value in values.items()},
+            }
+        return str({"tool": tool_name, "fingerprint": action_fingerprint(projection), **projection})
 
     @staticmethod
     def _audit_summary(tool_name: str, metadata: dict[str, Any], is_error: bool) -> str:

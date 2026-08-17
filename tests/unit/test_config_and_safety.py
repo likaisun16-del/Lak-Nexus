@@ -1,4 +1,4 @@
-"""配置与安全测试：验证工作区限制、命令拒绝和敏感信息脱敏。"""
+"""配置与安全测试：验证 Settings、WorkspacePathResolver、CommandPolicy 和脱敏工具的边界。"""
 
 from __future__ import annotations
 
@@ -70,6 +70,15 @@ def test_workspace_rejects_symlink_escape(tmp_path: Path) -> None:
         WorkspacePathResolver(tmp_path).resolve("outside-link.txt", require_exists=True)
 
 
+@pytest.mark.parametrize("sensitive_name", [".env", ".env.local", "credentials.json", "private.pem"])
+def test_workspace_rejects_sensitive_files(tmp_path: Path, sensitive_name: str) -> None:
+    path = tmp_path / sensitive_name
+    path.write_text("sentinel", encoding="utf-8")
+
+    with pytest.raises(PathAccessError, match="密钥或凭据"):
+        WorkspacePathResolver(tmp_path).resolve(sensitive_name, require_exists=True)
+
+
 @pytest.mark.parametrize(
     "command,reason",
     [
@@ -91,7 +100,17 @@ def test_command_policy_allows_read_only_commands() -> None:
     assert policy.check("pwd").allowed
     assert policy.check("git status --short").allowed
     assert policy.check("python -m compileall src").allowed
-    assert policy.check("rg --files -g '*.py'").allowed
+    decision = policy.check("rg --files")
+    assert decision.allowed
+    assert decision.argv == ("rg", "--files")
+
+
+@pytest.mark.parametrize("command", ["rg --files -g '*.py'", "rg --files *.py", "pwd $PWD"])
+def test_command_policy_rejects_shell_expansion(command: str) -> None:
+    decision = CommandPolicy().evaluate(command)
+
+    assert not decision.allowed
+    assert "Shell" in decision.reason
 
 
 def test_command_policy_check_raises_specific_error() -> None:
