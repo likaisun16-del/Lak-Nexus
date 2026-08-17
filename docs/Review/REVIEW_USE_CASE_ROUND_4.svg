@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760">
+  <rect width="1400" height="760" fill="white"/>
+  <text x="700" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">立凯中枢四工具 MVP - 第四轮复审用例图</text>
+
+  <!-- Actor：W=300，与域节点中位线对齐 -->
+  <circle cx="60" cy="282" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="300" x2="60" y2="340" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="318" x2="85" y2="318" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="340" x2="38" y2="370" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="340" x2="82" y2="370" stroke="#333" stroke-width="2"/>
+  <text x="60" y="390" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地用户 / 审批者</text>
+
+  <!-- 域节点：一级用例 y=100/180/260/340/420/500，中位数=(260+340)/2=300 -->
+  <ellipse cx="200" cy="300" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="305" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">最小智能体域</text>
+  <line x1="78" y1="300" x2="108" y2="300" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <!-- 一级用例 -->
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CLI / Agent Loop</text>
+
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">read 分页读取</text>
+
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">write / edit 变更</text>
+
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="345" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">bash 受控命令</text>
+
+  <ellipse cx="460" cy="420" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="425" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">结果与审计</text>
+
+  <ellipse cx="460" cy="500" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="505" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">远程接入加固</text>
+
+  <!-- 域节点到一级用例 -->
+  <line x1="290" y1="300" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="300" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="300" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="300" x2="360" y2="340" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="300" x2="360" y2="420" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="300" x2="360" y2="500" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 二级用例 -->
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="105" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">任务异常进入终态</text>
+  <line x1="560" y1="100" x2="600" y2="100" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="177" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">UTF-8 最小预算</text>
+  <text x="700" y="193" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">游标可推进</text>
+  <line x1="560" y1="180" x2="600" y2="180" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="265" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审批指纹与漂移校验</text>
+  <line x1="560" y1="260" x2="600" y2="260" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="337" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">rg 大小写敏感</text>
+  <text x="700" y="353" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">资源绕过</text>
+  <line x1="560" y1="340" x2="600" y2="340" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="420" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="417" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">git diff --check</text>
+  <text x="700" y="433" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">回显正文</text>
+  <line x1="560" y1="340" x2="600" y2="420" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="500" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="497" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">全分支消息预算</text>
+  <text x="700" y="513" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">与状态信封</text>
+  <line x1="560" y1="420" x2="600" y2="500" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="580" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="585" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审批最小审计投影</text>
+  <line x1="560" y1="420" x2="600" y2="580" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="660" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="657" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">OS 隔离与真实 HTTP</text>
+  <text x="700" y="673" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">及时取消</text>
+  <line x1="560" y1="500" x2="600" y2="660" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 图例：只列本图实际使用的类型 -->
+  <rect x="1000" y="80" width="300" height="220" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1150" y="110" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">图例</text>
+  <ellipse cx="1100" cy="145" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1100" y="150" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">已有 / 已闭环</text>
+  <ellipse cx="1100" cy="195" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1100" y="200" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">仍需改造</text>
+  <ellipse cx="1100" cy="245" rx="70" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1100" y="250" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地智能体域</text>
+
+  <text x="1050" y="360" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">第四轮结论</text>
+  <text x="1050" y="395" font-size="13" fill="#555" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">路径误拒绝与 read 游标</text>
+  <text x="1050" y="420" font-size="13" fill="#555" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">已经闭环。</text>
+  <text x="1050" y="460" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">rg 大小写与 git diff --check</text>
+  <text x="1050" y="485" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">仍可把正文返回模型。</text>
+  <text x="1150" y="550" text-anchor="middle" font-size="15" font-weight="bold" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CHANGES_REQUIRED</text>
+
+  <text x="700" y="730" text-anchor="middle" font-size="14" fill="#555" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">优先统一敏感路径大小写语义并移除 git diff 正文输出，再收口所有工具结果的最终消息预算。</text>
+</svg>
