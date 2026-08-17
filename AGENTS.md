@@ -58,7 +58,7 @@
 - 按计划实现最小可用功能。
 - 修改代码、补测试、运行验证。
 - 不擅自扩大需求范围。
-- 发现计划错误时，记录到 `docs/IMPLEMENTATION_NOTES.md`。
+- 之后所有 execute/Implementer 任务发现计划错误或需要进行实现交接时，统一在 `docs/Implement/` 目录内记录，默认文件为 `docs/Implement/IMPLEMENTATION_NOTES.md`；不得再写入项目根 `docs/` 目录。
 
 代码撰写要求：
 

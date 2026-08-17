@@ -1,0 +1,74 @@
+"""工作区路径安全：解析相对路径、符号链接和 ..，阻止文件工具越出根目录。"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..errors import PathAccessError, ToolExecutionError, ValidationError
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedPath:
+    """安全解析后的绝对路径及其工作区相对展示名。"""
+
+    path: Path
+    relative_path: str
+    exists: bool
+
+
+class WorkspacePathResolver:
+    """所有文件工具共享的工作区路径解析器。"""
+
+    def __init__(self, workspace_root: Path) -> None:
+        root = Path(workspace_root).expanduser().resolve(strict=False)
+        if not root.exists() or not root.is_dir():
+            raise PathAccessError(f"工作区初始化失败：根目录不存在或不是目录：{root}")
+        self.root = root
+
+    def resolve(
+        self,
+        raw_path: object,
+        *,
+        require_exists: bool = False,
+        file_only: bool = False,
+        reject_symlink: bool = False,
+    ) -> ResolvedPath:
+        """解析并验证路径，所有失败信息都包含输入路径和失败原因。"""
+
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValidationError("路径校验失败：path 必须是非空字符串")
+        input_path = Path(raw_path).expanduser()
+        lexical_path = input_path if input_path.is_absolute() else self.root / input_path
+        try:
+            resolved = lexical_path.resolve(strict=False)
+        except (OSError, RuntimeError) as exc:
+            raise PathAccessError(
+                f"路径校验失败：无法解析 {raw_path!r}，原因：{type(exc).__name__}"
+            ) from exc
+
+        try:
+            common = os.path.commonpath((os.path.normcase(str(self.root)), os.path.normcase(str(resolved))))
+        except ValueError as exc:
+            raise PathAccessError(f"路径访问被拒绝：{raw_path!r} 与工作区不在同一文件系统") from exc
+        if common != os.path.normcase(str(self.root)):
+            raise PathAccessError(
+                f"路径访问被拒绝：{raw_path!r} 解析后位于工作区外：{resolved}"
+            )
+        if reject_symlink and lexical_path.is_symlink():
+            raise PathAccessError(f"路径访问被拒绝：不允许通过符号链接写入：{raw_path!r}")
+        exists = resolved.exists()
+        relative = self._relative(resolved)
+        if require_exists and not exists:
+            raise ToolExecutionError(f"文件操作失败：目标不存在：{relative}")
+        if file_only and exists and not resolved.is_file():
+            raise ToolExecutionError(f"文件操作失败：目标不是普通文件：{relative}")
+        return ResolvedPath(resolved, relative, exists)
+
+    def _relative(self, path: Path) -> str:
+        try:
+            relative = path.relative_to(self.root).as_posix()
+        except ValueError as exc:
+            raise PathAccessError(f"路径访问被拒绝：无法生成工作区相对路径：{path}") from exc
+        return relative or "."
