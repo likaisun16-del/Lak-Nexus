@@ -56,6 +56,16 @@ class WorkspaceAccessPolicy:
                 return True
         return False
 
+    @classmethod
+    def rg_exclude_globs(cls) -> tuple[str, ...]:
+        """从同一敏感资源规则生成 ripgrep 排除模式，避免两套名单漂移。"""
+
+        patterns = ["!.env*", "!**/.env*"]
+        patterns.extend(f"!**/{name}" for name in sorted(_SENSITIVE_NAMES))
+        patterns.extend(f"!**/{directory}/**" for directory in sorted(_SENSITIVE_DIRECTORIES))
+        patterns.extend(f"!**/*{suffix}" for suffix in _SENSITIVE_SUFFIXES)
+        return tuple(patterns)
+
 
 class WorkspacePathResolver:
     """所有文件工具共享的工作区路径解析器。"""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -296,6 +297,16 @@ def test_bash_recursive_rg_excludes_sensitive_files(runtime) -> None:
     private_dir = nested / "private"
     private_dir.mkdir()
     (private_dir / "notes.txt").write_text(sentinel, encoding="utf-8")
+    uppercase_files = {
+        "Credentials.JSON": nested / "Credentials.JSON",
+        "SECRETS.Json": nested / "SECRETS.Json",
+        "PRIVATE.PEM": nested / "PRIVATE.PEM",
+        "Private/notes.txt": nested / "Private" / "notes.txt",
+        ".SSH/id_rsa": nested / ".SSH" / "id_rsa",
+    }
+    for path in uppercase_files.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(sentinel, encoding="utf-8")
     (nested / "normal.txt").write_text("normal", encoding="utf-8")
     tasks.create("task-rg-protected", "recursive search")
 
@@ -318,10 +329,53 @@ def test_bash_recursive_rg_excludes_sensitive_files(runtime) -> None:
     assert ".env.local" not in files.content
     assert "private.pem" not in files.content
     assert "private/notes.txt" not in files.content
+    for relative_path in uppercase_files:
+        assert relative_path not in files.content
     with database.connection() as connection:
         rows = connection.execute("SELECT request_summary FROM approvals").fetchall()
     assert sentinel not in str(rows)
     assert sentinel not in str(audit.list_tool_calls("task-rg-protected"))
+
+
+def test_git_diff_check_cannot_return_modified_line_to_model(runtime) -> None:
+    settings, _, tasks, audit, _, executor = runtime
+    sentinel = "UNLABELED_DIFF_SENTINEL_4"
+    tracked = settings.workspace_root / "tracked.txt"
+    tracked.write_text("clean\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=settings.workspace_root, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=settings.workspace_root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=settings.workspace_root, check=True)
+    subprocess.run(["git", "add", "tracked.txt"], cwd=settings.workspace_root, check=True)
+    subprocess.run(["git", "commit", "-qm", "initial"], cwd=settings.workspace_root, check=True)
+    tracked.write_text(f"{sentinel} \n", encoding="utf-8")
+    tasks.create("task-diff-check", "diff safety")
+
+    result = run(
+        executor.execute(
+            "task-diff-check",
+            ToolCall("diff-check", "bash", {"command": "git diff --check"}),
+        )
+    )
+
+    assert result.is_error
+    assert sentinel not in result.content
+    assert len(result.content.encode()) <= settings.max_output_bytes
+    assert sentinel not in str(audit.list_tool_calls("task-diff-check"))
+
+
+def test_unknown_tool_result_obeys_model_message_budget(runtime) -> None:
+    settings, _, tasks, _, _, executor = runtime
+    tasks.create("task-unknown-budget", "unknown tool")
+
+    result = run(
+        executor.execute(
+            "task-unknown-budget",
+            ToolCall("unknown-budget", "x" * 1000, {}),
+        )
+    )
+
+    assert result.is_error
+    assert len(result.content.encode()) <= settings.max_output_bytes
 
 
 def test_approval_audit_failure_finishes_tool_as_failed(runtime) -> None:

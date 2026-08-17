@@ -136,7 +136,7 @@ def test_bash_captures_nonzero_exit_and_truncates_output(settings) -> None:
         workspace_root=settings.workspace_root,
         database_path=settings.database_path,
         bash_path=settings.bash_path,
-        max_output_bytes=32,
+        max_output_bytes=64,
     )
     output_file = settings.workspace_root / "output.txt"
     output_file.write_text("x\n" * 100, encoding="utf-8")

@@ -33,47 +33,16 @@ _META = (
 _NETWORK_COMMANDS = {"curl", "wget", "nc", "ncat", "ssh", "scp", "sftp", "telnet", "ftp"}
 _DANGEROUS_GIT = {"clone", "fetch", "pull", "push", "remote", "submodule"}
 _SAFE_OPTION = {"-a", "-l", "-la", "-al", "-n", "-i", "-L", "--files", "--short"}
-_RG_PROTECTED_ARGS = (
-    "--no-follow",
-    "--glob",
-    "!.env*",
-    "--glob",
-    "!**/.env*",
-    "--glob",
-    "!**/.netrc",
-    "--glob",
-    "!**/.npmrc",
-    "--glob",
-    "!**/.pypirc",
-    "--glob",
-    "!**/credentials",
-    "--glob",
-    "!**/credentials.json",
-    "--glob",
-    "!**/secrets",
-    "--glob",
-    "!**/secrets.json",
-    "--glob",
-    "!**/id_rsa",
-    "--glob",
-    "!**/id_ed25519",
-    "--glob",
-    "!**/*.pem",
-    "--glob",
-    "!**/*.p12",
-    "--glob",
-    "!**/*.pfx",
-    "--glob",
-    "!**/*.key",
-    "--glob",
-    "!**/.aws/**",
-    "--glob",
-    "!**/.gnupg/**",
-    "--glob",
-    "!**/.ssh/**",
-    "--glob",
-    "!**/private/**",
-)
+
+
+def _rg_protected_args() -> tuple[str, ...]:
+    """生成不可由模型移除的大小写不敏感 ripgrep 保护参数。"""
+
+    return (
+        "--no-follow",
+        "--glob-case-insensitive",
+        *(item for pattern in WorkspaceAccessPolicy.rg_exclude_globs() for item in ("--glob", pattern)),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +99,7 @@ class CommandPolicy:
             return CommandDecision(False, executable, str(exc))
         argv = tuple(tokens)
         if executable == "rg":
-            argv += _RG_PROTECTED_ARGS
+            argv += _rg_protected_args()
         return CommandDecision(
             True,
             executable,
@@ -191,7 +160,7 @@ class CommandPolicy:
                 raise CommandDeniedError("命令被拒绝：git status 只允许无参数或 --short")
             return
         if args[0] == "diff":
-            allowed = {"--stat", "--name-only", "--check"}
+            allowed = {"--stat", "--name-only"}
             if len(args) == 1 or any(token not in allowed for token in args[1:]):
                 raise CommandDeniedError("命令被拒绝：git diff 只允许只读展示选项")
             return

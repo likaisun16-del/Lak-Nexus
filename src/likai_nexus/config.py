@@ -109,6 +109,8 @@ class Settings:
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"配置错误：{name} 必须大于 0")
+        if self.max_output_bytes < 64:
+            raise ConfigError("配置错误：MAX_OUTPUT_BYTES 至少为 64，才能容纳工具状态信封")
         if self.max_read_bytes < 4:
             raise ConfigError("配置错误：MAX_READ_BYTES 至少为 4，才能保证截断游标可推进")
 

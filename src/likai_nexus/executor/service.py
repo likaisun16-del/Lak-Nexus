@@ -54,7 +54,12 @@ class ToolExecutor:
                     error_message="未知工具审计失败：任务已终止",
                 )
                 raise
-            return ToolResult(tool_call.id, message, is_error=True, metadata={"error_type": "UnknownTool"})
+            return self._tool_result(
+                tool_call.id,
+                message,
+                is_error=True,
+                metadata={"error_type": "UnknownTool"},
+            )
 
         try:
             arguments = tool.validate(tool_call.arguments)
@@ -82,13 +87,9 @@ class ToolExecutor:
                         f"工具 {tool.name} 执行被拒绝：执行前目标状态发生变化，必须重新审批"
                     )
             output = await tool.execute(arguments, cancel_event)
-            result = ToolResult(
+            result = self._tool_result(
                 tool_call.id,
-                self._model_content(
-                    output.content,
-                    output.metadata,
-                    self.registry.model_message_budget(),
-                ),
+                output.content,
                 is_error=output.is_error,
                 metadata=output.metadata,
             )
@@ -130,12 +131,29 @@ class ToolExecutor:
                 error_type=type(exc).__name__,
                 error_message=message,
             )
-            return ToolResult(
+            return self._tool_result(
                 tool_call.id,
                 message,
                 is_error=True,
                 metadata={"error_type": type(exc).__name__},
             )
+
+    def _tool_result(
+        self,
+        tool_call_id: str,
+        content: str,
+        *,
+        is_error: bool,
+        metadata: dict[str, Any],
+    ) -> ToolResult:
+        """统一生成回填模型的工具结果，所有成功和错误分支共享总预算。"""
+
+        return ToolResult(
+            tool_call_id,
+            self._model_content(content, metadata, self.registry.model_message_budget()),
+            is_error=is_error,
+            metadata=metadata,
+        )
 
     def _start_tool_call(self, task_id: str, tool_call: ToolCall, arguments: str) -> str:
         """启动审计失败时立即抛出系统错误，交给 Agent Loop 终结任务。"""
@@ -253,6 +271,7 @@ class ToolExecutor:
             "action",
             "matches",
             "diff_truncated",
+            "error_type",
         }
         safe_metadata = {
             key: value for key, value in metadata.items() if key in allowed_keys
@@ -263,6 +282,10 @@ class ToolExecutor:
         if budget is None:
             return content + status
         body_budget = max(0, budget - len(status.encode("utf-8")))
+        if len(content.encode("utf-8")) > body_budget and not safe_metadata.get("truncated"):
+            safe_metadata = {**safe_metadata, "truncated": True}
+            status = ToolExecutor._status_envelope(safe_metadata, budget)
+            body_budget = max(0, budget - len(status.encode("utf-8")))
         body = ToolExecutor._bounded_model_body(
             content, body_budget, bool(safe_metadata.get("truncated"))
         )
@@ -276,7 +299,14 @@ class ToolExecutor:
         status = f"\n[工具状态] {serialized}"
         if budget is None or len(status.encode("utf-8")) <= budget:
             return status
-        priority = ("next_cursor", "truncated", "exit_code", "timed_out", "cancelled")
+        priority = (
+            "next_cursor",
+            "truncated",
+            "exit_code",
+            "timed_out",
+            "cancelled",
+            "error_type",
+        )
         compact = {key: metadata[key] for key in priority if key in metadata}
         serialized = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
         status = f"\n[状态] {serialized}"

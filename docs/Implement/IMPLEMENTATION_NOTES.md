@@ -103,3 +103,23 @@ git diff --check：通过
 ```
 
 2 个跳过项均与当前 Windows 环境不允许创建符号链接有关；真实模型 HTTP 取消仍按 Review 记录为本地 MVP 的 best-effort 限制。
+
+## 第四轮 Review 修复记录
+
+依据 `docs/Review/REVIEW.md` 的第四轮 `CHANGES_REQUIRED` 结论，继续完成：
+
+- `WorkspaceAccessPolicy` 同时生成文件工具和 `rg` 使用的排除 glob，并启用 `--glob-case-insensitive`，覆盖大小写变体的敏感文件、后缀和目录。
+- 从模型可调用的 Git 允许列表中移除 `git diff --check`，避免尾随空格违规行正文回填模型。
+- `MAX_OUTPUT_BYTES` 至少为 64；未知工具、参数/审批/执行异常和正常工具结果统一经过消息预算格式化出口，并保留错误类型、截断和游标状态。
+- 增加大小写敏感资源、`git diff --check` 哨兵和未知工具消息预算回归测试。
+
+## 第四轮修复最终验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q：81 passed，2 skipped
+.\.venv\Scripts\python.exe -m ruff check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过
+```
+
+2 个跳过项均与当前 Windows 环境不允许创建符号链接有关；真实模型 HTTP 取消仍按 Review 记录为本地 MVP 的 best-effort 限制。

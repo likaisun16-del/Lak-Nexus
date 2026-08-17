@@ -57,6 +57,11 @@ def test_config_rejects_read_budget_that_cannot_advance_cursor(tmp_path: Path) -
         Settings(workspace_root=tmp_path, max_read_bytes=3)
 
 
+def test_config_rejects_output_budget_without_status_envelope(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="MAX_OUTPUT_BYTES 至少为 64"):
+        Settings(workspace_root=tmp_path, max_output_bytes=63)
+
+
 def test_workspace_rejects_parent_escape(tmp_path: Path) -> None:
     resolver = WorkspacePathResolver(tmp_path)
     with pytest.raises(PathAccessError, match="工作区外"):
@@ -122,6 +127,7 @@ def test_shared_workspace_policy_rejects_sensitive_bash_paths(path: str) -> None
         ("rm -rf .", "允许列表"),
         ("git push", "不允许"),
         ("git diff", "只允许只读展示选项"),
+        ("git diff --check", "只允许只读展示选项"),
         ("python -c 'print(1)'", "compileall"),
         ("rg SENTINEL .env", "敏感资源"),
         ("rg SENTINEL credentials.json", "敏感资源"),
@@ -144,6 +150,7 @@ def test_command_policy_allows_read_only_commands() -> None:
     assert decision.allowed
     assert decision.argv[:2] == ("rg", "--files")
     assert "--no-follow" in decision.argv
+    assert "--glob-case-insensitive" in decision.argv
     assert "!**/credentials.json" in decision.argv
 
 
@@ -151,9 +158,9 @@ def test_command_policy_protects_recursive_rg_root() -> None:
     decision = CommandPolicy().check("rg SENTINEL .")
 
     assert decision.argv[:3] == ("rg", "SENTINEL", ".")
-    assert decision.argv[-2:] == ("--glob", "!**/private/**")
     assert "!**/.env*" in decision.argv
     assert "!**/.ssh/**" in decision.argv
+    assert "!**/private/**" in decision.argv
 
 
 @pytest.mark.parametrize("command", ["rg --files -g '*.py'", "rg --files *.py", "pwd $PWD"])
