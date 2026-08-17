@@ -1,4 +1,4 @@
-# 代码审查报告
+# 第二轮代码复审报告
 
 ## 审查信息
 
@@ -6,46 +6,51 @@
 - 审查人：Codex Reviewer
 - 审查时间：2026-08-17
 - 对应计划：`docs/Planner/MINIMAL_AGENT_FOUR_TOOLS_PLAN.md`
-- 审查范围：四工具 MVP 提交 `09f539d` 的业务代码、配置、测试和实现交接
+- 上一轮报告：[`docs/Review/REVIEW_ROUND_1.md`](./REVIEW_ROUND_1.md)
+- 修复交接：`docs/Implement/IMPLEMENTATION_NOTES.md`
+- 修复基线：`09f539d`（Implement minimal four-tool local agent）
+- 本轮审查提交：`eede675`（Harden execution safety and audit flow）
 - 对应分支：`agent/publish-mvp`
-- 工作区说明：审查开始时实现尚未提交，审查期间由外部流程提交并切换到当前分支；Reviewer 未修改业务代码
-- 用例附件：[`docs/Review/REVIEW_USE_CASE.svg`](./REVIEW_USE_CASE.svg) / [`docs/Review/REVIEW_USE_CASE.png`](./REVIEW_USE_CASE.png)
+- 用例附件：[`REVIEW_USE_CASE_ROUND_2.svg`](./REVIEW_USE_CASE_ROUND_2.svg) / [`REVIEW_USE_CASE_ROUND_2.png`](./REVIEW_USE_CASE_ROUND_2.png)
+- Reviewer 边界：仅在 `docs/Review/` 内归档第一轮报告并新增本报告和第二轮用例图，未修改业务代码、测试、计划或实现交接文件
 
 ## 审查结论
 
 - [ ] PASS
 - [x] CHANGES_REQUIRED
 
-当前实现的分层方向与计划基本一致，39 项测试通过、1 项符号链接测试因 Windows 权限跳过，Ruff 和编译检查通过。但审查复现确认仍存在工作区边界绕过、敏感内容持久化、任务状态残留、读取分页停滞、审批信息不足和 Bash 输出无界缓冲等阻塞问题。修复 P1 并补齐相应回归测试前，不应进入真实模型或远程渠道使用阶段。
+上一轮 6 个 P1 中，Shell 二次展开、审计异常导致任务悬空、超长行游标不前进、审批信息不足和 Bash 无界缓冲等 5 项已形成有效修复；“敏感信息最小化”仅部分关闭。全量测试、Ruff、编译和 diff 检查均通过，但复审确认仍有 3 个 P1：Bash 与文件工具没有共享敏感资源策略、Bash 审批审计仍持久化原始 argv、默认 Bash 自动发现会在当前 Windows 环境选中 WSL `bash.exe` 并导致允许命令失败。
 
-## 总体评价
+因此，当前代码可继续沿用现有架构修复，不需要推倒重来；在上述 P1 关闭前，不建议接入真实敏感工作区或远程消息渠道。
 
-### 做得较好的部分
+## 上一轮问题关闭情况
 
-- `CLI → AgentLoop → ToolExecutor → Safety/Tool → Storage` 的主依赖方向符合计划。
-- Agent Loop 没有直接访问文件、进程或 SQLite，具体模型协议也被限制在 Backend 层。
-- 四个工具统一经过 `ToolExecutor`；可预期工具错误会以 `ToolResult` 回填模型。
-- 文件路径解析、原子替换、编辑唯一匹配、SQLite 参数化 SQL、模型异常脱敏摘要等基础能力已经形成。
-- 代码结构保持了 MVP 所需的简洁度，没有提前引入 FastAPI、ORM、插件市场或多智能体框架。
-
-### 当前功能覆盖
-
-| 能力 | 结论 | 主要原因 |
+| 上一轮问题 | 本轮状态 | 复审判断 |
 |---|---|---|
-| CLI 单次任务 | 部分通过 | 可启动和返回退出码，但真实取消链路未完整验证 |
-| 可替换模型后端 | 基本通过 | 协议边界清晰，但阻塞 HTTP 工作线程不能被及时取消 |
-| Agent Loop | 不通过 | 工具/审计异常可逃逸并让任务残留为 `running` |
-| `read` | 不通过 | 超长单行触发字节截断后无法推进 offset |
-| `write` / `edit` | 不通过 | 审批预览不足，完整内容仍可能进入审计库 |
-| `bash` | 不通过 | 校验后的原始字符串仍交给 Shell 展开，可绕过工作区路径限制 |
-| 审批与审计 | 不通过 | 审批未绑定实际内容；敏感信息和源码可能持久化 |
-| 测试与静态检查 | 部分通过 | 已有检查全绿，但没有覆盖本次确认的失败场景和计划中的若干矩阵项 |
+| P1-1 Shell 二次展开绕过 | 已关闭 | 命令先固化为 argv，再经 `shlex.join()` 安全引用；`$`、glob、brace 等语法已有拒绝测试 |
+| P1-2 敏感内容进入模型或 SQLite | 部分关闭 | task、write、edit 和工具结果审计已改为摘要；Bash 敏感路径与审批 argv 仍有缺口 |
+| P1-3 审计异常使任务停在 running | 已关闭 | 内部 `audit_id`、task 内调用 ID 唯一约束、`AuditError` 终止路径和回归测试已补齐 |
+| P1-4 超长单行游标不前进 | 主问题已关闭 | 新增行内字节游标并覆盖 ASCII/UTF-8；返回预算与非法游标仍有 P2 问题 |
+| P1-5 write/edit 审批信息不足 | 已关闭 | 预览或 diff、内容摘要、目标摘要、审批指纹与漂移校验均已实现 |
+| P1-6 Bash 输出先完整缓冲 | 已关闭 | stdout/stderr 已改为有界并发读取，超限后继续排空，不再无界保留 |
+| P2-1 真实模型请求取消 | 未关闭、已明确限制 | 仍是 `asyncio.to_thread(urllib)` 的 best-effort 取消 |
+| P2-2 无效配置和 `.env` 文档差异 | 已关闭 | 未生效开关已删除，当前目录 `.env` 语义已同步 |
+| P2-3 测试矩阵缺口 | 部分关闭 | 已从 39/1 增至 55/1，但本轮复现路径尚无回归测试 |
+
+## 做得较好的部分
+
+- 主依赖仍保持 `CLI → AgentLoop → ToolExecutor → Safety/Tool → Storage`，没有把执行逻辑塞回 Agent Loop。
+- `ToolExecutor` 对参数、审批、执行和审计异常建立了统一终结路径，供应商调用 ID 也不再要求跨任务全局唯一。
+- write/edit 的展示摘要与持久化摘要已经分离，审批绑定目标状态和内容指纹，能够拒绝审批后的目标漂移。
+- `read` 的“行号 + 行内字节偏移”解决了上一轮超长单行死循环。
+- Bash 使用固定 argv、禁用 profile/rc、清理影响执行的环境变量并采用有界流读取，安全性和稳定性均明显提升。
+- 代码仍保持 MVP 规模，没有提前引入 Webhook、队列、ORM、多智能体或通用策略引擎。
 
 ## 严重级别
 
 - P0：阻塞发布，可能造成严重数据、权限或安全问题。
-- P1：重要功能或安全错误，必须修复。
-- P2：一般问题、维护性问题或测试缺口。
+- P1：重要安全或核心功能错误，必须修复后才能 PASS。
+- P2：一般功能边界、维护性问题或测试缺口。
 
 ## 问题列表
 
@@ -55,155 +60,152 @@
 
 ### P1
 
-#### P1-1：Bash 校验对象与实际执行对象不一致，可绕过工作区限制
+#### P1-1：Bash 没有复用敏感资源策略，可读取文件工具明确拒绝的路径
 
-- 证据：`CommandPolicy` 使用 `shlex` 校验解析后的 token，但 `BashTool` 最终把未经规范化的原始字符串传给 `bash -lc`。
-- 最小复现：`CommandPolicy().evaluate("ls $HOME").allowed` 和 `CommandPolicy().evaluate("ls {../*,.}").allowed` 均为 `True`。实际 Shell 会继续执行变量、brace、glob 和启动脚本展开，可能访问工作区外路径。
-- 影响：字符串允许列表不能兑现“Bash 只访问工作区”的安全承诺，也可能受 `BASH_ENV`、登录脚本、PATH 或命令包装影响。
-- 必须修改：校验与执行必须使用同一份规范化 argv；优先直接执行绝对路径绑定的允许命令，不再把原始字符串交给 Shell。若仍保留 Bash，应禁用 profile/rc、清理影响执行语义的环境变量，并为变量展开、brace 展开和父目录 glob 增加拒绝测试。
-- 位置：`src/likai_nexus/safety/command_policy.py:30`、`src/likai_nexus/executor/tools/bash.py:82`
+- 证据：`WorkspacePathResolver` 在 `src/likai_nexus/safety/paths.py:76-94` 拒绝 `.env*`、凭据文件和私钥；Bash 的 `CommandPolicy` 在 `src/likai_nexus/safety/command_policy.py:115-133`、`178-186` 只检查命令形态、绝对路径和 `..`，不检查敏感文件名，也没有注入工作区资源策略。
+- 最小复现：`CommandPolicy().evaluate("rg SENTINEL credentials.json").allowed`、`CommandPolicy().evaluate("rg SENTINEL .env").allowed` 和 `CommandPolicy().evaluate("ls credentials.json").allowed` 均为 `True`。
+- 影响：模型不能通过 `read` 读取凭据，但能改用 `bash` 的 `rg`、`ls` 或可执行项目代码的命令触达同一资源，安全能力取决于选择了哪个工具。Bash 输出会作为工具消息回填模型，因此这不是单纯的命令行显示问题。
+- 必须修改：抽出一个公开、可复用的工作区资源策略，文件工具和 Bash 的显式路径参数都必须调用同一策略。对于 `pytest` 等能执行项目代码的命令，应明确它们无法靠字符串策略获得强隔离；接入远程渠道前使用低权限账户、容器或沙箱，并禁止挂载真实凭据。
+- 必须测试：Bash 显式访问 `.env`、`credentials.json`、私钥后缀和敏感目录时被拒绝；哨兵内容不进入模型工具消息、CLI 输出或 SQLite。
 
-#### P1-2：敏感文件和完整工具内容可进入模型上下文或 SQLite
+#### P1-2：Bash 审批审计仍保存原始 argv，可持久化无标签敏感参数
 
-- 证据：工具执行器把完整 arguments 交给通用 `redact_arguments()`；`content`、`old_text`、`new_text` 不是敏感键，因此普通源码或无标签密钥会原样入库。任务仓储也直接保存原始 `request_text`。路径策略允许读取工作区内 `.env`。
-- 最小复现：无标签哨兵文本在一次 `write` 后仍出现在 `tool_calls.arguments_redacted`，也原样出现在 `tasks.request_text`；工作区内 `.env` 可通过路径解析和 `read` 检查。
-- 影响：违反“密钥、Token、Cookie 和密码不出现在日志或数据库中”的验收要求；读取结果还可能被发送给模型并在最终答案中回显。
-- 必须修改：为每种工具定义显式审计投影，只保存路径、动作、长度、摘要哈希和结果状态，不保存 write 正文或 edit 原文/新文；对任务文本采用明确的脱敏/最小化策略；增加敏感路径策略，默认拒绝 `.env*`、私钥、凭据文件等内容，并验证哨兵不出现在数据库、模型消息和 CLI 输出中。
-- 位置：`src/likai_nexus/executor/service.py:34`、`src/likai_nexus/safety/redaction.py:24`、`src/likai_nexus/storage/task_repository.py:24`、`src/likai_nexus/safety/paths.py:30`
+- 证据：`src/likai_nexus/executor/tools/bash.py:82-84` 把 `argv={argv!r}` 写入 `ApprovalRequest.audit_summary`；`src/likai_nexus/executor/service.py:172-180` 只经过通用 `redact_text()` 后持久化该摘要。通用正则无法识别无标签搜索词、口令或业务敏感参数。
+- 最小复现：审批命令 `rg UNLABELED_SECRET_SENTINEL README.md` 时，`request.audit_summary` 仍包含完整 `UNLABELED_SECRET_SENTINEL`。
+- 影响：上一轮“工具参数和审批记录只保存最小摘要”的修复目标尚未完全兑现；本地 SQLite 仍可能长期保留用户不希望落盘的命令参数。
+- 必须修改：审批界面继续显示经脱敏的完整命令，持久化审计只保存 executable、参数数量、超时、命令 SHA-256、审批指纹和经过资源策略确认的非敏感路径摘要，不保存原始 argv 或搜索模式。
+- 必须测试：对 Bash 审批使用无标签哨兵，断言 `approvals.request_summary`、`tool_calls.arguments_redacted`、任务结果摘要和错误摘要均不包含哨兵。
 
-#### P1-3：工具或审计异常会逃逸 Agent Loop，使任务残留在 `running`
+#### P1-3：默认 Bash 自动发现会选中 WSL，导致核心允许命令在当前 Windows 环境失败
 
-- 证据：`AgentLoop.run()` 只兜底 `CancelledError`；`ToolExecutor.start_tool_call()` 又位于工具级 try 块之外。`tool_call_id` 是全局主键，模型在不同任务中复用 ID 会触发 `sqlite3.IntegrityError`。
-- 最小复现：先写入 `duplicate-id`，再让第二个任务返回相同调用 ID，异常直接离开 Agent Loop，第二个任务状态保持 `running`。
-- 影响：当前 CLI 进程内任务状态不真实，必须等下次启动恢复；也破坏了“模型调用失败、工具失败和取消都有明确状态”的验收标准。
-- 必须修改：使用内部审计主键或 `(task_id, tool_call_id)` 复合唯一约束；在编排边界捕获工具/审计系统异常并尽力将任务终结为 `failed`；为工具开始、工具结束和任务状态建立一致的事务/补偿语义。
-- 位置：`src/likai_nexus/orchestrator/agent_loop.py:77`、`src/likai_nexus/executor/service.py:34`、`src/likai_nexus/storage/database.py:35`
-
-#### P1-4：`read` 对超长单行的分页游标不会前进
-
-- 证据：当一行超过剩余字节上限时，代码追加部分字节并立即退出，但没有增加 `current_offset`；之后追加的继续读取提示又会被第二次字节截断移除。
-- 最小复现：11 字节单行、`max_bytes=5` 时，首次 `next_offset=0`；使用该 offset 再读会得到完全相同的内容。
-- 影响：模型无法继续读取该文件，可能重复调用直至达到最大轮数。
-- 必须修改：明确采用字节游标或“行号 + 行内字节偏移”游标；继续读取信息必须保留在响应预算内；覆盖超长 ASCII 行、多字节 UTF-8 行和恰好达到上限的测试。
-- 位置：`src/likai_nexus/executor/tools/read_file.py:92`
-
-#### P1-5：人工审批信息不足，无法判断实际写入或修改内容
-
-- 证据：write 审批只展示路径和字节数；edit 审批只展示文本长度、匹配次数以及固定文案“将替换唯一匹配块”，不展示安全受限的 diff 或内容摘要。
-- 最小复现：edit 的 `new_text` 使用哨兵内容后，审批 summary 中完全没有该内容或内容哈希。
-- 影响：两个长度相同但语义完全不同的修改会显示相同审批信息，人工审批不能构成有效安全边界。
-- 必须修改：在审批前生成不可变的 Prepared Action，展示规范化相对路径、新建/覆盖动作、受限 diff/预览、字节数和内容摘要哈希；审批决定绑定该动作摘要，执行前若目标状态或摘要变化则重新审批。
-- 位置：`src/likai_nexus/executor/tools/write_file.py:48`、`src/likai_nexus/executor/tools/edit_file.py:55`
-
-#### P1-6：Bash 输出限制发生在完整缓冲之后，不能防止内存耗尽
-
-- 证据：`process.communicate()` 会先把 stdout/stderr 全部读入内存，进程结束后才调用 `truncate_text()`。
-- 影响：允许命令在超时窗口内产生大量输出时，64 KiB 配置只限制返回文本，不限制进程内存，存在本地拒绝服务风险。
-- 必须修改：并发流式读取 stdout/stderr，只保留有界缓冲；达到上限后继续安全排空或终止进程，并保证超时、取消和进程树清理仍然生效。
-- 位置：`src/likai_nexus/executor/tools/bash.py:152`
+- 证据：`src/likai_nexus/executor/tools/bash.py:182-189` 在未配置 `BASH_PATH` 时直接使用 `shutil.which("bash")`，没有验证是否为 Git Bash；`tests/conftest.py:23-27` 使用同一发现方式。当前机器解析到 `C:\Users\likai\AppData\Local\Microsoft\WindowsApps\bash.exe`，它启动的是 WSL，而不是计划要求的 Git Bash。
+- 最小复现：自动发现的 Bash 下，`pwd` 成功，但 `rg Nexus README.md` 和 `python -m compileall src` 均以 127 失败并报告命令不存在；显式配置 `C:\Program Files\Git\bin\bash.exe` 后，`pwd`、`rg`、`git status --short` 和 `python -m compileall src` 均成功。
+- 测试误判：`tests/unit/test_bash_and_backend.py:73-89` 只断言大输出 `truncated=True`，没有断言该允许命令执行成功，因此 WSL 下 `rg` 失败仍能通过测试。
+- 影响：默认配置与 `.env.example` 的“留空则从 PATH 查找”承诺不可靠，四个核心工具之一在支持的 Windows 环境中可能实际不可用；WSL 与 Windows Git 对路径、换行和工作树状态的解释也可能不一致。
+- 必须修改：在 Windows 上优先要求显式 `BASH_PATH`，或实现仅发现 Git for Windows 的逻辑；初始化时验证运行时身份和最小命令能力，发现 WindowsApps/WSL 时给出明确配置错误。若计划支持 WSL，应建立独立运行时适配器和路径转换，不能与 Git Bash 共用当前实现。
+- 必须测试：对 `pwd`、`rg`、`git`、`pytest`/`python` 的代表命令断言 `is_error=False` 和 `exit_code=0`；增加“PATH 只有 WSL bash.exe”时受控失败的测试。
 
 ### P2
 
-#### P2-1：真实模型请求无法被取消信号及时中止
+#### P2-1：`read` 的返回预算和字节游标契约仍不完整
 
-- `OpenAICompatibleBackend` 使用 `asyncio.to_thread()` 包装阻塞 `urllib`。取消 await 不会终止底层线程或 HTTP 请求，最坏仍需等待模型超时。
-- CLI 也没有显式创建并贯穿统一 cancel event；现有测试只覆盖“运行前已取消”，没有覆盖模型请求中、审批中或 Bash 运行中的取消。
-- 建议在保持 Backend 抽象的前提下使用可取消的异步 HTTP 传输，或明确记录“请求取消为 best-effort”，并补充 Ctrl+C 退出码和任务最终状态集成测试。
-- 位置：`src/likai_nexus/models/openai_backend.py:26`、`src/likai_nexus/channels/cli.py:24`
+- `src/likai_nexus/executor/tools/read_file.py:90-93` 在文件内容达到字节上限后再追加继续读取提示，因此配置 `max_bytes=5` 时实测文件字节数为 5，但最终工具内容为 72 字节，不符合计划“最多返回 64 KiB”的总量语义。
+- `src/likai_nexus/executor/tools/read_file.py:161-174` 在剩余预算小于首个 UTF-8 字符时会返回完整字符；`max_bytes=1` 读取中文字符时会返回 3 个文件字节。
+- 调用方可以提交落在 UTF-8 字符中间的 `byte_offset`。对有效 UTF-8 文件使用该游标时，工具会误报“文件不是有效 UTF-8”，而不是拒绝非法游标或返回可继续的位置。
+- 建议：明确限制的是“文件正文”还是“完整工具消息”；若按计划限制完整消息，应预留游标信封预算。优先把两个整数换成工具生成的不透明 cursor，或严格验证 `(offset, byte_offset)` 位于字符边界。
 
-#### P2-2：配置模板包含未生效开关，`.env` 查找语义与 README 不一致
+#### P2-2：Bash 截断标记会被第二次截断，模型不知道输出不完整
 
-- `.env.example` 提供 `REQUIRE_APPROVAL_FOR_WRITE`、`REQUIRE_APPROVAL_FOR_COMMAND`，但 Settings 没有读取它们；`ALLOW_NETWORK_ACCESS` 虽被读取，却没有参与命令策略。
-- README 声称读取“项目根目录 `.env`”，实现实际读取进程当前目录的 `.env`。
-- 建议删除暂不支持的开关或完整接线；网络隔离未实现前不要提供看似能开放网络的配置。明确选择“当前目录”或可定位的应用配置目录，并同步文档和测试。
-- 位置：`.env.example:47`、`src/likai_nexus/config.py:115`、`README.md:6`
+- `src/likai_nexus/executor/tools/bash.py:144-154` 先截断输出再追加标记，随后 `src/likai_nexus/executor/tools/bash.py:167-179` 又对带状态前缀的完整消息截断，末尾标记通常被删除。
+- 使用显式 Git Bash 和 `max_output_bytes=64` 复现：`metadata.truncated=True`、最终内容 62 字节，但内容中没有“输出已截断”。
+- `src/likai_nexus/orchestrator/agent_loop.py:134-140` 回填模型时只传 `result.content`，不传 `metadata`，所以模型无法从结构化元数据获知截断状态。
+- 建议：统一定义有界工具结果信封，例如先保留状态、`truncated` 和 `next_cursor`，剩余预算再放正文；或在 ToolExecutor 中把安全 metadata 序列化进工具消息，避免每个工具手工拼接易丢失的提示。
 
-#### P2-3：测试矩阵未覆盖计划中的关键边界
+#### P2-3：真实模型运行中取消仍为 best-effort
 
-- 缺少：超长单行分页、write 原子失败后原文件完整、edit 审批拒绝、实际 diff 内容、Bash 变量/brace 绕过、子进程敏感环境清理、运行中取消、重复 tool_call_id、审计写入失败、完整 CLI + Fake Backend 链路。
-- 当前符号链接逃逸测试在 Windows 被跳过，尚没有不依赖本机开发者权限的替代验证环境。
-- `tests/integration/test_cli_agent.py` 当前只覆盖参数解析和缺少配置，并未跑通计划声明的三条端到端验收场景。
+- `src/likai_nexus/models/openai_backend.py:42-44` 在 `asyncio.to_thread()` 前后检查取消信号，但无法中止正在执行的 `urllib` 请求线程。
+- 当前新增测试使用会主动等待 `cancel_event` 的假 Backend，证明了 Agent Loop 协议能传播取消，但没有证明真实 HTTP 能及时释放连接和后台线程。
+- 建议：本地 MVP 可以继续把该限制写入交接；接入远程长期任务前改用支持异步取消的 HTTP 客户端，并补充真实传输层的取消与超时测试。
+
+#### P2-4：新增修复的测试仍缺少关键反例
+
+- 缺少本轮 3 个 P1 的回归测试：跨工具敏感路径、Bash 审批哨兵、Git Bash/WSL 运行时识别。
+- Bash 仍缺少审批拒绝、固定 cwd、敏感环境变量清理和各允许命令真实成功的断言。
+- `read` 缺少完整响应预算、非法字节游标和极小预算下多字节字符测试；现有长行测试用 `startswith()`，没有约束响应总大小。
+- 数据库新增了旧 `tool_calls` 表迁移逻辑，但没有旧库升级、数据保留和重复初始化测试。
+- CLI 集成测试仍只覆盖参数解析和缺少配置，没有覆盖 Fake Backend 下的成功任务、审批拒绝、Ctrl+C 退出码与最终任务状态。
 
 ## 架构与功能优化建议
 
-### 第一优先级：收紧安全执行边界
+### 第一优先级：形成跨工具一致的安全边界
 
-1. 把 `bash` 从“验证字符串后交给 Shell”改为“解析一次、执行同一 argv 的受控命令运行器”。这仍可对模型暴露名为 `bash` 的工具，但内部不应依赖 Shell 二次解释。
-2. 在 `ToolExecutor` 中引入轻量 `PreparedToolAction`：包含规范化参数、规范化路径、风险类型、审批预览、内容摘要和安全审计字段。Safety、审批、执行和审计共享同一份不可变数据，减少重复解析与审批后漂移。
-3. 将“脱敏”拆成两层：敏感资源访问策略决定“能不能读”，审计投影决定“允许记录什么”。通用正则只能作为最后兜底，不能承担主要安全职责。
+1. 将 `WorkspacePathResolver` 中的敏感资源判断提升为公开的 `WorkspaceAccessPolicy`（名称可按现有风格调整）。路径规范化、工作区边界和敏感资源拒绝只保留一份规则，由 read/write/edit 和 Bash 的路径型参数共同调用。
+2. 明确两层保证：字符串和路径策略负责 MVP 允许列表；OS 级隔离负责阻止允许命令执行项目代码后读取凭据或联网。不要让审批或通用脱敏正则承担沙箱职责。
+3. 延续当前 `ApprovalRequest.summary` 与 `audit_summary` 分离设计，但将持久化摘要改为类型化投影；所有工具都用无标签哨兵测试“不能落盘”。
 
-### 第二优先级：强化任务和审计一致性
+### 第二优先级：把 Bash 运行时当作显式依赖
 
-1. 为任务状态增加合法迁移检查，例如 `pending → running → terminal`，终态不可重新进入 running。
-2. 工具调用使用内部主键，并保留供应商 `tool_call_id` 作为普通字段；至少将唯一范围限制在 task 内。
-3. 对“工具调用开始、审批决定、执行结果、任务最终状态”定义清楚的事务或失败补偿规则，确保任何异常都有可诊断终态。
+1. 启动阶段完成 Git Bash 路径发现、身份验证和最小能力自检，错误应直接说明找到的是 WSL、路径不存在，还是允许命令不可用。
+2. 若继续保留 Bash，只支持一个清晰运行时；若未来同时支持 Git Bash 和 WSL，分别实现路径、PATH 和进程树终止适配器。
+3. 更小、更安全的后续方案是让对外工具名称仍叫 `bash`，内部直接按绝对可执行路径启动已批准 argv；`pwd` 可由 Python 返回工作区路径，从而完全去掉 Shell 层。该调整需由 Planner 明确后再实施。
 
-### 第三优先级：补齐可取消、可限流的 I/O
+### 第三优先级：统一工具结果和审批动作契约
 
-1. 模型 HTTP、Bash stdout/stderr 和未来网络工具都应采用有界、可取消的异步 I/O。
-2. `read` 明确分页游标契约，不要用单一行号同时承担行数截断和字节截断。
-3. 给 write/edit 输入增加合理大小上限，避免模型请求和 SQLite 审计被超大参数拖垮。
+1. 引入轻量、不可变的 Prepared Action 数据：规范化参数、规范化路径、风险类型、展示摘要、审计投影、目标状态和指纹。当前多次调用 `approval_request()` 的逻辑可逐步收敛到这一对象，减少重复读取和阶段漂移。
+2. 为模型可见的工具结果定义有界信封，固定保留成功/失败、是否截断、下一游标和正文长度；正文只能使用扣除信封后的预算。
+3. 给 write/edit 参数增加合理字节上限；未来远程并发前，把任务状态更新改为带当前状态条件的单条 SQL，避免读取后更新的竞态。
 
 ### 暂不建议增加的复杂度
 
-- 当前不需要引入 FastAPI、消息队列、ORM、多智能体、插件系统或通用工作流引擎。
-- 先修复安全闭环、状态一致性和测试矩阵，再评估远程渠道与 OS 级沙箱。
+- 当前不需要引入 FastAPI、消息队列、ORM、多智能体框架、插件市场或通用策略 DSL。
+- 先关闭本轮 P1、补齐结果契约和真实运行时测试，再推进飞书/微信接入。
 
 ## 检查项目
 
-- [ ] 是否满足 `docs/Planner/MINIMAL_AGENT_FOUR_TOOLS_PLAN.md`
-- [ ] 是否不存在重要逻辑错误
-- [x] 是否保持清晰分层
-- [ ] 是否正确处理关键边界条件
-- [ ] 是否正确处理所有系统级异常
-- [ ] 是否不存在权限绕过
-- [ ] 是否对四工具统一限制工作区路径
-- [ ] 是否不会泄露或持久化敏感信息
-- [ ] 是否不存在重复执行/重复调用 ID 风险
-- [ ] 是否具备完整超时和取消机制
-- [ ] 是否补充计划要求的必要测试
-- [x] 是否无明显无关业务代码改动
-- [x] 是否通过当前 lint、测试和编译检查
+- [ ] 完全满足 `docs/Planner/MINIMAL_AGENT_FOUR_TOOLS_PLAN.md`
+- [x] 保持清晰分层，Agent Loop 未直接访问文件、进程或 SQLite
+- [x] write/edit 审批绑定内容摘要和目标状态
+- [x] Shell 展开绕过已关闭
+- [x] Bash stdout/stderr 内存保留有界
+- [x] 工具或审计异常能使任务进入明确终态
+- [ ] 四工具共享一致的敏感资源边界
+- [ ] 审批和工具审计均不持久化原始敏感参数
+- [ ] 默认 Windows Bash 运行时可用且身份明确
+- [ ] read/Bash 的模型可见截断信息和总量契约可靠
+- [ ] 真实模型调用具备及时取消能力
+- [ ] 计划测试矩阵已完整覆盖
+- [x] 当前测试、Ruff、编译和 diff 检查通过
+- [x] Reviewer 未修改业务代码
 
 ## 验证记录
 
 ```text
 .\.venv\Scripts\python.exe -m pytest
-结果：39 passed，1 skipped
+结果：55 passed，1 skipped
+跳过项：Windows 当前权限不允许创建符号链接
 
-.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\ruff.exe check .
 结果：All checks passed!
 
 .\.venv\Scripts\python.exe -m compileall src
 结果：通过
 
-git diff --check
+git diff --check 09f539d..HEAD
 结果：通过
 
+审查开始与业务验证结束时 git status --short
+结果：clean
+
 附加最小复现：
-- bash_env_path_allowed=True
-- bash_brace_escape_allowed=True
-- sensitive_filename_read_allowed=True
-- long_line_next_offset=0
-- long_line_repeats=True
-- approval_exposes_new_content=False
-- write_content_persisted=True
-- request_text_persisted=True
-- duplicate_id_task_status=running
+- bash_rg_credentials_allowed=True
+- bash_rg_dotenv_allowed=True
+- bash_ls_credentials_allowed=True
+- bash_approval_audit_contains_unlabeled_sentinel=True
+- auto_bash_path=C:\Users\likai\AppData\Local\Microsoft\WindowsApps\bash.exe
+- auto_bash_rg_exit_code=127
+- auto_bash_python_exit_code=127
+- explicit_git_bash_pwd/rg/git/python_success=True
+- read_configured_max_bytes=5
+- read_reported_file_bytes=5
+- read_actual_result_bytes=72
+- read_utf8_character_bytes_with_limit_1=3
+- read_mid_codepoint_cursor_reports_invalid_utf8=True
+- bash_truncated_metadata=True
+- bash_truncation_marker_visible_to_model=False
 ```
 
-说明：未读取项目根目录 `.env` 内容；仅通过 `git check-ignore` 确认该文件已被忽略且未被 Git 跟踪。
+说明：复审没有读取项目根目录 `.env` 的内容，也没有输出或构造真实密钥；敏感路径复现只评估命令策略，使用的是虚构文件名和哨兵文本。
 
 ## 复审门槛
 
-1. 修复全部 P1。
-2. 为每个 P1 增加能够在修复前失败、修复后通过的回归测试。
-3. 补齐 P2-1 的运行中取消验证，并明确配置开关语义。
-4. 重新执行 pytest、Ruff、compileall 和 `git diff --check`。
-5. Fixer 在 `docs/Implement/IMPLEMENTATION_NOTES.md` 记录修复范围和验证结果后，再请求 Reviewer 复审。
+1. 修复本轮全部 P1：跨工具敏感资源策略、Bash 审批最小审计、Git Bash 运行时发现与验证。
+2. 为每个 P1 增加修复前失败、修复后通过的回归测试。
+3. 修复 P2-1/P2-2，确保模型可见的 read/Bash 结果在预算内且保留截断/游标信息。
+4. 明确 P2-3 是当前版本接受的已知限制，或改为可取消 HTTP 实现；远程渠道接入前必须关闭。
+5. 重新执行 pytest、Ruff、compileall、`git diff --check`，并在 `docs/Implement/IMPLEMENTATION_NOTES.md` 记录修复与验证结果。
 
 ## 最终意见
 
 **CHANGES_REQUIRED**
 
-架构骨架可以保留，不需要推倒重来；当前阻塞点集中在安全执行边界、审计数据最小化、任务终态一致性和边界测试。完成上述修复后再进行复审。
+现有架构方向正确，上一轮多数高优先级问题已关闭。本轮阻塞集中在 Bash 的跨工具安全一致性、审计数据最小化和 Windows 运行时选择；这些问题范围明确，适合在当前结构内做小步修复。
