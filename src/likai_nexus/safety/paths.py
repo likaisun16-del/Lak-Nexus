@@ -19,6 +19,7 @@ _SENSITIVE_NAMES = {
     "id_rsa",
     "id_ed25519",
 }
+_SENSITIVE_DIRECTORIES = {".aws", ".gnupg", ".ssh", "private"}
 _SENSITIVE_SUFFIXES = (".pem", ".p12", ".pfx", ".key")
 
 
@@ -29,6 +30,31 @@ class ResolvedPath:
     path: Path
     relative_path: str
     exists: bool
+
+
+class WorkspaceAccessPolicy:
+    """共享工作区资源策略，供文件工具和 Bash 的显式路径参数复用。"""
+
+    @staticmethod
+    def is_sensitive_path(path: object) -> bool:
+        """判断路径任一组件是否指向环境文件、凭据、私钥或敏感目录。"""
+
+        if isinstance(path, os.PathLike):
+            path = os.fspath(path)
+        if not isinstance(path, str):
+            return False
+        for part in path.replace("\\", "/").split("/"):
+            name = part.lower()
+            if not name or name == ".":
+                continue
+            if (
+                name.startswith(".env")
+                or name in _SENSITIVE_NAMES
+                or name in _SENSITIVE_DIRECTORIES
+                or name.endswith(_SENSITIVE_SUFFIXES)
+            ):
+                return True
+        return False
 
 
 class WorkspacePathResolver:
@@ -87,13 +113,7 @@ class WorkspacePathResolver:
     def _is_sensitive_path(path: Path) -> bool:
         """默认拒绝环境文件、私钥和凭据文件，避免工具把密钥送入模型上下文。"""
 
-        for part in path.parts:
-            name = part.lower()
-            if name.startswith(".env"):
-                return True
-            if name in _SENSITIVE_NAMES or name.endswith(_SENSITIVE_SUFFIXES):
-                return True
-        return False
+        return WorkspaceAccessPolicy.is_sensitive_path(path)
 
     def _relative(self, path: Path) -> str:
         try:

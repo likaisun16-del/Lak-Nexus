@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .config import Settings
+from .errors import ConfigError, ToolExecutionError
 from .executor.registry import ToolRegistry
 from .executor.service import ToolExecutor
 from .models.base import ModelBackend
@@ -32,13 +33,18 @@ def build_runtime(
 ) -> Runtime:
     """完成一次性任务所需的依赖组装，测试可注入 Fake Backend 和静态审批器。"""
 
+    registry = ToolRegistry.create(settings)
+    try:
+        registry.validate_runtime()
+    except ToolExecutionError as exc:
+        raise ConfigError(f"运行时配置失败：{exc}") from exc
     database = Database(settings.database_path)
     database.initialize()
     tasks = TaskRepository(database)
     tasks.recover_running()
     audit = AuditRepository(database)
     executor = ToolExecutor(
-        ToolRegistry.create(settings), approvals or CliApprovalHandler(), audit
+        registry, approvals or CliApprovalHandler(), audit
     )
     agent = AgentLoop(
         backend or OpenAICompatibleBackend(settings), executor, tasks, settings.max_turns

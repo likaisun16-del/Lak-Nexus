@@ -9,7 +9,7 @@ import pytest
 from likai_nexus.config import Settings
 from likai_nexus.errors import CommandDeniedError, ConfigError, PathAccessError
 from likai_nexus.safety.command_policy import CommandPolicy
-from likai_nexus.safety.paths import WorkspacePathResolver
+from likai_nexus.safety.paths import WorkspaceAccessPolicy, WorkspacePathResolver
 from likai_nexus.safety.redaction import redact_arguments, redact_text
 
 
@@ -79,6 +79,11 @@ def test_workspace_rejects_sensitive_files(tmp_path: Path, sensitive_name: str) 
         WorkspacePathResolver(tmp_path).resolve(sensitive_name, require_exists=True)
 
 
+@pytest.mark.parametrize("path", [".env", "credentials.json", "private.pem", ".ssh/id_rsa"])
+def test_shared_workspace_policy_rejects_sensitive_bash_paths(path: str) -> None:
+    assert WorkspaceAccessPolicy.is_sensitive_path(path)
+
+
 @pytest.mark.parametrize(
     "command,reason",
     [
@@ -87,6 +92,10 @@ def test_workspace_rejects_sensitive_files(tmp_path: Path, sensitive_name: str) 
         ("rm -rf .", "允许列表"),
         ("git push", "不允许"),
         ("python -c 'print(1)'", "compileall"),
+        ("rg SENTINEL .env", "敏感资源"),
+        ("rg SENTINEL credentials.json", "敏感资源"),
+        ("ls private.pem", "敏感资源"),
+        ("rg SENTINEL .ssh/known_hosts", "敏感资源"),
     ],
 )
 def test_command_policy_rejects_dangerous_or_unlisted(command: str, reason: str) -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -10,6 +9,7 @@ import pytest
 from likai_nexus.config import Settings
 from likai_nexus.executor.registry import ToolRegistry
 from likai_nexus.executor.service import ToolExecutor
+from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.safety.approval import StaticApprovalHandler
 from likai_nexus.storage.audit_repository import AuditRepository
 from likai_nexus.storage.database import Database
@@ -20,7 +20,7 @@ from likai_nexus.storage.task_repository import TaskRepository
 def settings(tmp_path: Path) -> Settings:
     """为每个测试提供独立工作区和数据库，避免污染项目目录。"""
 
-    bash = shutil.which("bash")
+    bash = BashTool.discover_bash_path()
     return Settings(
         workspace_root=tmp_path,
         database_path=tmp_path / "audit.sqlite3",

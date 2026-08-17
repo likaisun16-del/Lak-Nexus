@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from ..errors import CommandDeniedError, ValidationError
+from .paths import WorkspaceAccessPolicy
 
 # 作用：阻断会让原始字符串重新进入 Shell 解释器的语法；Bash 工具随后只执行 argv。
 _META = (
@@ -116,6 +117,7 @@ class CommandPolicy:
         if not args:
             raise CommandDeniedError("命令被拒绝：rg 必须指定搜索模式或 --files")
         expect_glob = False
+        pattern_seen = False
         for token in args:
             if expect_glob:
                 cls._safe_path_token(token)
@@ -128,6 +130,9 @@ class CommandPolicy:
                 continue
             if token.startswith("-"):
                 raise CommandDeniedError(f"命令被拒绝：rg 选项不允许：{token}")
+            if not pattern_seen and "--files" not in args:
+                pattern_seen = True
+                continue
             cls._safe_path_token(token)
         if expect_glob:
             raise CommandDeniedError("命令被拒绝：rg 的 -g/--glob 缺少模式")
@@ -184,3 +189,5 @@ class CommandPolicy:
             raise CommandDeniedError(f"命令被拒绝：参数不能包含工作区逃逸路径：{token}")
         if "\x00" in token:
             raise ValidationError("命令校验失败：参数包含 NUL 字符")
+        if WorkspaceAccessPolicy.is_sensitive_path(token):
+            raise CommandDeniedError(f"命令被拒绝：参数不能访问敏感资源：{token}")

@@ -70,6 +70,8 @@ def test_read_long_line_advances_byte_cursor(tmp_path: Path) -> None:
     assert third.content == "\n"
     assert first.metadata["next_byte_offset"] > 0
     assert second.metadata["next_byte_offset"] > first.metadata["next_byte_offset"]
+    assert len(first.content.encode()) <= 5
+    assert first.metadata["next_cursor"] == "0:5"
 
 
 def test_read_multibyte_cursor_is_valid_utf8(tmp_path: Path) -> None:
@@ -81,6 +83,31 @@ def test_read_multibyte_cursor_is_valid_utf8(tmp_path: Path) -> None:
     assert output.content.startswith("你")
     assert "�" not in output.content
     assert output.metadata["next_byte_offset"] == len("你".encode())
+    assert len(output.content.encode()) <= 4
+
+
+def test_read_small_budget_does_not_split_utf8_character(tmp_path: Path) -> None:
+    (tmp_path / "tiny.txt").write_text("中", encoding="utf-8")
+    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=1)
+
+    output = run(tool.execute(tool.validate({"path": "tiny.txt"})))
+
+    assert output.content == ""
+    assert len(output.content.encode()) <= 1
+    assert output.metadata["truncated"] is True
+    assert output.metadata["next_cursor"] == "0:0"
+
+
+def test_read_rejects_mid_codepoint_cursor(tmp_path: Path) -> None:
+    (tmp_path / "中文.txt").write_text("你好", encoding="utf-8")
+    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=4)
+
+    with pytest.raises(Exception, match="UTF-8 字符边界"):
+        run(
+            tool.execute(
+                tool.validate({"path": "中文.txt", "offset": 0, "byte_offset": 1})
+            )
+        )
 
 
 def test_read_rejects_binary_and_directory(tmp_path: Path) -> None:
@@ -215,6 +242,30 @@ def test_task_and_approval_audits_store_summaries_only(runtime) -> None:
     assert sentinel not in str(rows)
     assert sentinel not in str(approvals)
     assert sentinel not in str(audit.list_tool_calls("task-sentinel"))
+
+
+def test_bash_approval_audit_does_not_store_raw_arguments(runtime) -> None:
+    _, database, tasks, audit, _, executor = runtime
+    sentinel = "UNLABELED_SECRET_SENTINEL"
+    tasks.create("task-bash-audit", "bash audit")
+
+    result = run(
+        executor.execute(
+            "task-bash-audit",
+            ToolCall(
+                "bash-audit",
+                "bash",
+                {"command": f"rg {sentinel} README.md", "timeout_seconds": 1},
+            ),
+        )
+    )
+
+    with database.connection() as connection:
+        approvals = connection.execute("SELECT request_summary FROM approvals").fetchall()
+    assert result.is_error
+    assert sentinel not in result.content
+    assert sentinel not in str(approvals)
+    assert sentinel not in str(audit.list_tool_calls("task-bash-audit"))
 
 
 def test_approval_audit_failure_finishes_tool_as_failed(runtime) -> None:

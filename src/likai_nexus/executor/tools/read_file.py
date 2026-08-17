@@ -34,6 +34,8 @@ class ReadFileTool:
     )
 
     def __init__(self, resolver: WorkspacePathResolver, max_lines: int, max_bytes: int) -> None:
+        if max_bytes <= 0:
+            raise ValueError("工具 read 配置错误：max_bytes 必须大于 0")
         self.resolver = resolver
         self.max_lines = max_lines
         self.max_bytes = max_bytes
@@ -86,11 +88,6 @@ class ReadFileTool:
             raise ToolExecutionError(
                 f"读取文件失败：目标 {resolved.relative_path}，原因：{type(exc).__name__}: {exc}"
             ) from exc
-        if truncated:
-            content += (
-                f"\n[内容已截断：请使用 offset={next_offset}, "
-                f"byte_offset={next_byte_offset} 继续读取]"
-            )
         return ToolOutput(
             content=content,
             metadata={
@@ -99,6 +96,7 @@ class ReadFileTool:
                 "byte_offset": arguments["byte_offset"],
                 "next_offset": next_offset,
                 "next_byte_offset": next_byte_offset,
+                "next_cursor": f"{next_offset}:{next_byte_offset}",
                 "truncated": truncated,
                 "bytes": bytes_read,
             },
@@ -117,11 +115,24 @@ class ReadFileTool:
             for line_number, raw_line in enumerate(file):
                 if line_number < offset:
                     continue
+                # 先验证整行，避免预算不足时因只截取空前缀而漏报二进制内容。
+                raw_line.decode("utf-8")
                 start = byte_offset if line_number == offset else 0
-                if start >= len(raw_line):
+                if start > len(raw_line):
+                    raise ValidationError(
+                        f"工具 read 游标无效：offset={offset} 的 byte_offset={byte_offset} 超过行长度"
+                    )
+                if start == len(raw_line):
                     next_offset = line_number + 1
                     next_byte_offset = 0
                     continue
+                if start:
+                    try:
+                        raw_line[:start].decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise ValidationError(
+                            f"工具 read 游标无效：offset={offset}, byte_offset={byte_offset} 不在 UTF-8 字符边界"
+                        ) from exc
                 raw_line = raw_line[start:]
                 if lines_read >= limit:
                     truncated = True
@@ -135,6 +146,11 @@ class ReadFileTool:
                     next_byte_offset = start
                     break
                 prefix, was_cut = self._safe_utf8_prefix(raw_line, remaining)
+                if not prefix:
+                    truncated = True
+                    next_offset = line_number
+                    next_byte_offset = start
+                    break
                 chunks.append(prefix)
                 bytes_read += len(prefix)
                 if was_cut:
@@ -170,5 +186,4 @@ class ReadFileTool:
                 return candidate, True
             except UnicodeDecodeError:
                 candidate = candidate[:-1]
-        first_character = data.decode("utf-8")[0]
-        return first_character.encode("utf-8"), True
+        return b"", True

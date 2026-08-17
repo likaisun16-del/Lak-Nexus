@@ -70,18 +70,21 @@ class BashTool:
 
     def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest:
         argv = self._normalized_argv(arguments)
+        fingerprint = action_fingerprint(
+            {"argv": argv, "timeout_seconds": arguments["timeout_seconds"]}
+        )
         return ApprovalRequest(
             action_type="bash",
             summary=(
                 f"在工作区 {self.settings.workspace_root} 执行命令："
                 f"{redact_text(arguments['command'])}（超时 {arguments['timeout_seconds']} 秒）"
             ),
-            fingerprint=action_fingerprint(
-                {"argv": argv, "timeout_seconds": arguments["timeout_seconds"]}
-            ),
+            fingerprint=fingerprint,
             audit_summary=(
-                f"bash 动作：argv={argv!r}，超时={arguments['timeout_seconds']} 秒，"
-                f"command sha256={content_sha256(arguments['command'])}"
+                f"bash 动作：可执行文件={argv[0]}，参数数量={len(argv) - 1}，"
+                f"超时={arguments['timeout_seconds']} 秒，"
+                f"command sha256={content_sha256(arguments['command'])}，"
+                f"审批指纹={fingerprint}"
             ),
         )
 
@@ -91,23 +94,7 @@ class BashTool:
         argv = self._normalized_argv(arguments)
         bash_path = self._find_bash()
         command_path = self._find_command(argv[0])
-        environment = {
-            key: value for key, value in os.environ.items() if not is_sensitive_key(key)
-        }
-        for key in (
-            "BASH_ENV",
-            "ENV",
-            "CDPATH",
-            "GLOBIGNORE",
-            "SHELLOPTS",
-            "BASHOPTS",
-            "PROMPT_COMMAND",
-            "PS4",
-        ):
-            environment.pop(key, None)
-        for key in tuple(environment):
-            if key.startswith("BASH_FUNC_"):
-                environment.pop(key, None)
+        environment = self._safe_environment()
         environment["CI"] = "1"
         environment["GIT_TERMINAL_PROMPT"] = "0"
         if command_path:
@@ -150,12 +137,11 @@ class BashTool:
             "timed_out": reason == "timeout",
             "cancelled": reason == "cancelled",
         }
-        if truncated:
-            output += "\n[命令输出已截断：超过配置字节上限]"
         if reason == "timeout":
-            message, _ = truncate_text(
-                f"Bash 执行超时：超过 {arguments['timeout_seconds']} 秒\n{output}",
-                self.settings.max_output_bytes,
+            message = self._bounded_message(
+                f"Bash 执行超时：超过 {arguments['timeout_seconds']} 秒\n",
+                output,
+                truncated,
             )
             return ToolOutput(
                 message,
@@ -165,28 +151,126 @@ class BashTool:
         if reason == "cancelled":
             return ToolOutput("Bash 已取消：收到任务取消信号", is_error=True, metadata=metadata)
         if process.returncode != 0:
-            message, _ = truncate_text(
-                f"Bash 执行失败：退出码 {process.returncode}\n{output}",
-                self.settings.max_output_bytes,
+            message = self._bounded_message(
+                f"Bash 执行失败：退出码 {process.returncode}\n",
+                output,
+                truncated,
             )
             return ToolOutput(
                 message,
                 is_error=True,
                 metadata=metadata,
             )
-        message, _ = truncate_text(
-            f"Bash 执行成功：退出码 0\n{output}", self.settings.max_output_bytes
+        message = self._bounded_message(
+            "Bash 执行成功：退出码 0\n",
+            output,
+            truncated,
         )
         return ToolOutput(message, metadata=metadata)
 
     def _find_bash(self):
-        bash_path = self.settings.bash_path or shutil.which("bash")
+        bash_path = self.settings.bash_path
+        if bash_path is None:
+            bash_path = self.discover_bash_path()
+            discovered = shutil.which("bash")
+            if bash_path is None and self._is_wsl_path(discovered):
+                raise ToolExecutionError(
+                    "Bash 配置失败：PATH 中的 bash.exe 是 WSL 入口，不是 Git Bash；"
+                    "请在 .env 设置 Git Bash 的 BASH_PATH"
+                )
         if not bash_path:
-            raise ToolExecutionError("Bash 执行失败：未找到 bash，请设置 BASH_PATH")
+            raise ToolExecutionError(
+                "Bash 配置失败：未找到 Git Bash；请在 .env 设置 BASH_PATH"
+            )
         path = os.fspath(bash_path)
         if not os.path.exists(path):
             raise ToolExecutionError(f"Bash 执行失败：配置的 BASH_PATH 不存在：{path}")
+        if os.name == "nt" and self._is_wsl_path(path):
+            raise ToolExecutionError(
+                f"Bash 配置失败：BASH_PATH 指向 WSL 入口 {path}，请改为 Git Bash"
+            )
+        self._probe_runtime(path)
         return path
+
+    def validate_runtime(self) -> None:
+        """在 CLI 组装运行时阶段验证 Bash 身份和最小 Git 能力。"""
+
+        self._find_bash()
+
+    @classmethod
+    def discover_bash_path(cls) -> str | None:
+        """只自动发现 Git Bash，避免 Windows PATH 中的 WSL bash.exe 被误选。"""
+
+        if os.name != "nt":
+            return shutil.which("bash")
+        candidates = [
+            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "bash.exe"),
+            os.path.join(
+                os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                "Git",
+                "bin",
+                "bash.exe",
+            ),
+        ]
+        discovered = shutil.which("bash")
+        if discovered and not cls._is_wsl_path(discovered):
+            candidates.append(discovered)
+        for candidate in candidates:
+            if os.path.isfile(candidate) and not cls._is_wsl_path(candidate):
+                return os.path.abspath(candidate)
+        return None
+
+    @staticmethod
+    def _is_wsl_path(path: object) -> bool:
+        if not path:
+            return False
+        normalized = os.path.normcase(os.fspath(path)).replace("/", "\\")
+        return "\\windowsapps\\" in normalized or normalized.endswith("\\system32\\bash.exe")
+
+    def _probe_runtime(self, bash_path: str) -> None:
+        """验证运行时能启动受控 Bash 并提供 Git，失败时报告具体路径和原因。"""
+
+        try:
+            result = subprocess.run(
+                [bash_path, "--noprofile", "--norc", "-c", "command -v pwd && command -v git"],
+                cwd=self.settings.workspace_root,
+                env=self._safe_environment(),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ToolExecutionError(
+                f"Bash 运行时探测失败：路径 {bash_path}，原因：{type(exc).__name__}"
+            ) from exc
+        if result.returncode != 0:
+            raise ToolExecutionError(
+                f"Bash 运行时不兼容：路径 {bash_path} 缺少 pwd/git，退出码 {result.returncode}"
+            )
+
+    @staticmethod
+    def _safe_environment() -> dict[str, str]:
+        """移除密钥、启动脚本、Shell 函数和会改变命令语义的环境变量。"""
+
+        environment = {
+            key: value for key, value in os.environ.items() if not is_sensitive_key(key)
+        }
+        for key in (
+            "BASH_ENV",
+            "ENV",
+            "CDPATH",
+            "GLOBIGNORE",
+            "SHELLOPTS",
+            "BASHOPTS",
+            "PROMPT_COMMAND",
+            "PS4",
+        ):
+            environment.pop(key, None)
+        for key in tuple(environment):
+            if key.startswith("BASH_FUNC_"):
+                environment.pop(key, None)
+        return environment
 
     @staticmethod
     def _find_command(executable: str) -> str | None:
@@ -199,9 +283,11 @@ class BashTool:
         if executable == "pwd":
             return None
         if executable in {"python", "python3", "pytest", "ruff"}:
-            candidate = os.path.join(os.path.dirname(sys.executable), f"{executable}.exe")
-            if os.path.exists(candidate):
-                return os.path.abspath(candidate)
+            names = ("python.exe",) if executable == "python3" else (f"{executable}.exe",)
+            for name in names:
+                candidate = os.path.join(os.path.dirname(sys.executable), name)
+                if os.path.exists(candidate):
+                    return os.path.abspath(candidate)
         raise ToolExecutionError(f"Bash 执行失败：未找到允许命令 {executable}")
 
     def _normalized_argv(self, arguments: dict[str, Any]) -> tuple[str, ...]:
@@ -316,3 +402,19 @@ class BashTool:
         if stderr_text:
             return f"{stdout_text}\n[stderr]\n{stderr_text}" if stdout_text else f"[stderr]\n{stderr_text}"
         return stdout_text
+
+    def _bounded_message(self, prefix: str, body: str, truncated: bool) -> str:
+        """在一次预算内保留状态前缀、正文和截断标记，避免二次截断丢失提示。"""
+
+        marker = "\n[输出已截断]" if truncated else ""
+        if marker and len(marker.encode("utf-8")) > self.settings.max_output_bytes:
+            marker = "[截断]"
+        if marker and len(marker.encode("utf-8")) > self.settings.max_output_bytes:
+            marker = "!"
+        prefix, _ = truncate_text(
+            prefix,
+            max(0, self.settings.max_output_bytes - len(marker.encode("utf-8"))),
+        )
+        remaining = self.settings.max_output_bytes - len((prefix + marker).encode("utf-8"))
+        body, _ = truncate_text(body, max(0, remaining))
+        return prefix + body + marker

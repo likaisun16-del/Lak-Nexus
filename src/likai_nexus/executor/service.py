@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from ..errors import ApprovalDeniedError, AuditError, NexusError
@@ -83,7 +84,7 @@ class ToolExecutor:
             output = await tool.execute(arguments, cancel_event)
             result = ToolResult(
                 tool_call.id,
-                output.content,
+                self._model_content(output.content, output.metadata),
                 is_error=output.is_error,
                 metadata=output.metadata,
             )
@@ -226,6 +227,34 @@ class ToolExecutor:
                 "value_types": {str(key): type(value).__name__ for key, value in values.items()},
             }
         return str({"tool": tool_name, "fingerprint": action_fingerprint(projection), **projection})
+
+    @staticmethod
+    def _model_content(content: str, metadata: dict[str, Any]) -> str:
+        """把安全工具状态附加到模型消息，使截断和续读游标不会依赖被截断正文。"""
+
+        allowed_keys = {
+            "path",
+            "offset",
+            "byte_offset",
+            "next_offset",
+            "next_byte_offset",
+            "next_cursor",
+            "bytes",
+            "truncated",
+            "exit_code",
+            "timed_out",
+            "cancelled",
+            "action",
+            "matches",
+            "diff_truncated",
+        }
+        safe_metadata = {
+            key: value for key, value in metadata.items() if key in allowed_keys
+        }
+        if not safe_metadata:
+            return content
+        serialized = json.dumps(safe_metadata, ensure_ascii=False, sort_keys=True)
+        return f"{content}\n[工具状态] {serialized}"
 
     @staticmethod
     def _audit_summary(tool_name: str, metadata: dict[str, Any], is_error: bool) -> str:

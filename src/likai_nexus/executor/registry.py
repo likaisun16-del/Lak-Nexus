@@ -42,3 +42,10 @@ class ToolRegistry:
         """以稳定顺序返回四个工具定义。"""
 
         return tuple(self._tools[name].spec for name in ("read", "write", "edit", "bash"))
+
+    def validate_runtime(self) -> None:
+        """在 CLI 启动阶段验证 Bash 运行时，避免任务开始后才发现 WSL 或缺少 Git。"""
+
+        bash = self._tools["bash"]
+        if isinstance(bash, BashTool):
+            bash.validate_runtime()

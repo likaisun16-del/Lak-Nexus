@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
+from pathlib import Path
 
 import pytest
 
-from likai_nexus.errors import ModelBackendError
+from likai_nexus.errors import ConfigError, ModelBackendError, ToolExecutionError
 from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.models.openai_backend import OpenAICompatibleBackend
 from likai_nexus.orchestrator.schemas import ChatMessage, ToolCall
+from likai_nexus.runtime import build_runtime
+from likai_nexus.safety.command_policy import CommandPolicy
 
 
 def run(coro):
@@ -57,7 +59,53 @@ def test_openai_response_errors_are_specific(settings) -> None:
         OpenAICompatibleBackend(settings)._parse_response({})
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="当前环境没有 Bash")
+def test_bash_rejects_wsl_path_from_windows_path(monkeypatch, settings) -> None:
+    settings = settings.__class__(
+        workspace_root=settings.workspace_root,
+        database_path=settings.database_path,
+        bash_path=None,
+    )
+    monkeypatch.setattr(
+        "likai_nexus.executor.tools.bash.shutil.which",
+        lambda name: r"C:\Users\test\WindowsApps\bash.exe",
+    )
+    monkeypatch.setattr(BashTool, "discover_bash_path", classmethod(lambda cls: None))
+
+    with pytest.raises(ToolExecutionError, match="WSL"):
+        BashTool(settings, CommandPolicy())._find_bash()
+
+
+def test_runtime_rejects_wsl_bash_before_starting_tasks(monkeypatch, settings) -> None:
+    settings = settings.__class__(
+        workspace_root=settings.workspace_root,
+        database_path=settings.database_path,
+        bash_path=None,
+    )
+    monkeypatch.setattr(
+        "likai_nexus.executor.tools.bash.shutil.which",
+        lambda name: r"C:\Users\test\WindowsApps\bash.exe",
+    )
+    monkeypatch.setattr(BashTool, "discover_bash_path", classmethod(lambda cls: None))
+
+    with pytest.raises(ConfigError, match="WSL"):
+        build_runtime(settings)
+
+
+def test_bash_truncation_marker_stays_inside_budget(settings) -> None:
+    settings = settings.__class__(
+        workspace_root=settings.workspace_root,
+        database_path=settings.database_path,
+        max_output_bytes=64,
+    )
+    tool = BashTool(settings, CommandPolicy())
+
+    message = tool._bounded_message("Bash 执行成功：退出码 0\n", "x" * 500, True)
+
+    assert len(message.encode()) <= 64
+    assert "输出已截断" in message
+
+
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_runs_pwd_with_approval(settings) -> None:
     from likai_nexus.safety.command_policy import CommandPolicy
 
@@ -69,10 +117,8 @@ def test_bash_runs_pwd_with_approval(settings) -> None:
     assert result.metadata["exit_code"] == 0
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="当前环境没有 Bash")
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_captures_nonzero_exit_and_truncates_output(settings) -> None:
-    from likai_nexus.safety.command_policy import CommandPolicy
-
     settings = settings.__class__(
         workspace_root=settings.workspace_root,
         database_path=settings.database_path,
@@ -83,21 +129,40 @@ def test_bash_captures_nonzero_exit_and_truncates_output(settings) -> None:
     output_file.write_text("x\n" * 100, encoding="utf-8")
     tool = BashTool(settings, CommandPolicy())
     success = run(tool.execute(tool.validate({"command": "rg x output.txt"})))
+    assert not success.is_error
+    assert success.metadata["exit_code"] == 0
     assert success.metadata["truncated"] is True
     failure = run(tool.execute(tool.validate({"command": "pytest missing-test-file.py"})))
     assert failure.is_error is True
     assert failure.metadata["exit_code"] != 0
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="当前环境没有 Bash")
-def test_bash_timeout_terminates_process(settings) -> None:
-    from likai_nexus.safety.command_policy import CommandPolicy
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
+def test_bash_representative_commands_succeed(settings) -> None:
+    repository_settings = settings.__class__(
+        workspace_root=Path.cwd(),
+        database_path=settings.database_path,
+        bash_path=settings.bash_path,
+    )
+    tool = BashTool(repository_settings, CommandPolicy())
 
+    for command in ("pwd", "git status --short", "python -m compileall src"):
+        result = run(tool.execute(tool.validate({"command": command})))
+        assert not result.is_error, command
+        assert result.metadata["exit_code"] == 0, command
+
+
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
+def test_bash_timeout_terminates_process(settings) -> None:
     tool = BashTool(settings, CommandPolicy())
 
     async def scenario():
         process = await asyncio.create_subprocess_exec(
-            shutil.which("bash"), "-lc", "sleep 2", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            settings.bash_path,
+            "-lc",
+            "sleep 2",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         return await tool._communicate(process, 1, None)
 
@@ -105,15 +170,13 @@ def test_bash_timeout_terminates_process(settings) -> None:
     assert reason == "timeout"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="当前环境没有 Bash")
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_cancellation_terminates_running_process(settings) -> None:
-    from likai_nexus.safety.command_policy import CommandPolicy
-
     tool = BashTool(settings, CommandPolicy())
 
     async def scenario():
         process = await asyncio.create_subprocess_exec(
-            shutil.which("bash"),
+            settings.bash_path,
             "-lc",
             "sleep 2",
             stdout=asyncio.subprocess.PIPE,

@@ -61,3 +61,25 @@ py -3.12 -m venv .venv
 git diff --check：通过
 git check-ignore -v --no-index .env：命中 .gitignore:1:.env，文件未被 Git 跟踪
 ```
+
+## 第二轮 Review 修复记录
+
+依据 `docs/Review/REVIEW.md` 的第二轮 `CHANGES_REQUIRED` 结论，继续完成：
+
+- 新增公开的 `WorkspaceAccessPolicy`，由文件工具和 Bash 的显式路径参数共享 `.env*`、凭据、私钥和敏感目录拒绝规则。
+- Bash 审批界面仍展示脱敏后的完整命令，但持久化审批摘要只保存可执行文件、参数数量、超时、命令摘要哈希和审批指纹，不保存原始 argv。
+- Windows Bash 自动发现优先 Git for Windows；显式或自动发现 WSL `bash.exe` 会被拒绝，运行时启动阶段会探测受控 Bash 和 Git 能力。
+- read 对总正文预算、UTF-8 字节边界和非法游标进行校验；截断游标通过安全 metadata 传入模型。
+- Bash 结果在单次预算内保留状态前缀和截断标记；ToolExecutor 将安全的截断、退出码和续读游标状态附加到模型工具消息。
+- 增加跨工具敏感路径、Bash 审批哨兵、WSL 运行时、结果预算和非法游标回归测试。
+
+## 第二轮修复最终验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q：70 passed，1 skipped
+.\.venv\Scripts\python.exe -m ruff check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过
+```
+
+其中 1 个跳过项仍是当前 Windows 权限不允许创建符号链接。

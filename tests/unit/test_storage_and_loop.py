@@ -62,6 +62,7 @@ def test_agent_loop_reads_then_returns_final_answer(runtime) -> None:
     assert result.status is TaskStatus.SUCCESS
     assert result.content == "读取完成：hello"
     assert backend.call_count == 2
+    assert '"next_cursor": "1:0"' in backend.messages[1][-1].content
     assert len(audit.list_tool_calls("loop-1")) == 1
     assert tasks.get("loop-1")["status"] == TaskStatus.SUCCESS.value
 
