@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from likai_nexus.errors import AuditError
+from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.executor.tools.edit_file import EditFileTool
 from likai_nexus.executor.tools.read_file import ReadFileTool
 from likai_nexus.orchestrator.schemas import ToolCall
@@ -86,16 +87,31 @@ def test_read_multibyte_cursor_is_valid_utf8(tmp_path: Path) -> None:
     assert len(output.content.encode()) <= 4
 
 
-def test_read_small_budget_does_not_split_utf8_character(tmp_path: Path) -> None:
-    (tmp_path / "tiny.txt").write_text("中", encoding="utf-8")
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=1)
+def test_read_minimum_budget_cursor_progresses_to_next_line(tmp_path: Path) -> None:
+    (tmp_path / "mixed.txt").write_bytes("a\n中\n".encode())
+    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=4)
 
-    output = run(tool.execute(tool.validate({"path": "tiny.txt"})))
+    first = run(tool.execute(tool.validate({"path": "mixed.txt"})))
+    second = run(
+        tool.execute(
+            tool.validate(
+                {
+                    "path": "mixed.txt",
+                    "offset": first.metadata["next_offset"],
+                    "byte_offset": first.metadata["next_byte_offset"],
+                }
+            )
+        )
+    )
 
-    assert output.content == ""
-    assert len(output.content.encode()) <= 1
-    assert output.metadata["truncated"] is True
-    assert output.metadata["next_cursor"] == "0:0"
+    assert first.content == "a\n"
+    assert first.metadata["next_cursor"] == "1:0"
+    assert second.content == "中\n"
+
+
+def test_read_rejects_budget_that_cannot_advance_utf8_cursor(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="至少为 4"):
+        ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=1)
 
 
 def test_read_rejects_mid_codepoint_cursor(tmp_path: Path) -> None:
@@ -266,6 +282,46 @@ def test_bash_approval_audit_does_not_store_raw_arguments(runtime) -> None:
     assert sentinel not in result.content
     assert sentinel not in str(approvals)
     assert sentinel not in str(audit.list_tool_calls("task-bash-audit"))
+
+
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
+def test_bash_recursive_rg_excludes_sensitive_files(runtime) -> None:
+    settings, database, tasks, audit, _, executor = runtime
+    sentinel = "UNLABELED_REVIEW_SENTINEL_3"
+    nested = settings.workspace_root / "nested"
+    nested.mkdir()
+    (nested / "credentials.json").write_text(sentinel, encoding="utf-8")
+    (nested / ".env.local").write_text(sentinel, encoding="utf-8")
+    (nested / "private.pem").write_text(sentinel, encoding="utf-8")
+    private_dir = nested / "private"
+    private_dir.mkdir()
+    (private_dir / "notes.txt").write_text(sentinel, encoding="utf-8")
+    (nested / "normal.txt").write_text("normal", encoding="utf-8")
+    tasks.create("task-rg-protected", "recursive search")
+
+    result = run(
+        executor.execute(
+            "task-rg-protected",
+            ToolCall("rg-recursive", "bash", {"command": f"rg {sentinel} ."}),
+        )
+    )
+    files = run(
+        executor.execute(
+            "task-rg-protected",
+            ToolCall("rg-files", "bash", {"command": "rg --files ."}),
+        )
+    )
+
+    assert result.is_error
+    assert sentinel not in result.content
+    assert "credentials.json" not in files.content
+    assert ".env.local" not in files.content
+    assert "private.pem" not in files.content
+    assert "private/notes.txt" not in files.content
+    with database.connection() as connection:
+        rows = connection.execute("SELECT request_summary FROM approvals").fetchall()
+    assert sentinel not in str(rows)
+    assert sentinel not in str(audit.list_tool_calls("task-rg-protected"))
 
 
 def test_approval_audit_failure_finishes_tool_as_failed(runtime) -> None:

@@ -83,3 +83,23 @@ git diff --check：通过
 ```
 
 其中 1 个跳过项仍是当前 Windows 权限不允许创建符号链接。
+
+## 第三轮 Review 修复记录
+
+依据 `docs/Review/REVIEW.md` 的第三轮 `CHANGES_REQUIRED` 结论，继续完成：
+
+- 工作区敏感判断改为只检查工作区相对路径，显式 Bash 路径复用真实解析器并拒绝符号链接和 Windows 目录连接。
+- `rg` 自动注入 `--no-follow` 与不可移除的敏感文件/目录排除规则，覆盖递归根目录和 `--files`；裸 `git diff` 及可能返回正文的变体不再允许。
+- `MAX_READ_BYTES` 至少为 4，保证 UTF-8 截断游标可推进；`ToolExecutor` 使用 `MAX_OUTPUT_BYTES` 统一限制最终模型工具消息，并优先保留游标、退出码和截断状态。
+- 增加递归敏感文件、显式符号链接、工作区祖先目录、最小 read 预算和最终消息总预算回归测试。
+
+## 第三轮修复最终验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q：77 passed，2 skipped
+.\.venv\Scripts\python.exe -m ruff check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过
+```
+
+2 个跳过项均与当前 Windows 环境不允许创建符号链接有关；真实模型 HTTP 取消仍按 Review 记录为本地 MVP 的 best-effort 限制。

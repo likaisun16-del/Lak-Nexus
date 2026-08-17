@@ -17,20 +17,22 @@ from .tools.write_file import WriteFileTool
 class ToolRegistry:
     """四工具名称到实现的只读注册表。"""
 
-    def __init__(self, tools: Iterable[Tool]) -> None:
+    def __init__(self, tools: Iterable[Tool], model_message_budget: int | None = None) -> None:
         self._tools = {tool.name: tool for tool in tools}
+        self._model_message_budget = model_message_budget
 
     @classmethod
     def create(cls, settings: Settings) -> ToolRegistry:
         resolver = WorkspacePathResolver(settings.workspace_root)
-        policy = CommandPolicy()
+        policy = CommandPolicy(resolver)
         return cls(
             (
                 ReadFileTool(resolver, settings.max_read_lines, settings.max_read_bytes),
                 WriteFileTool(resolver),
                 EditFileTool(resolver, settings.max_output_bytes),
                 BashTool(settings, policy),
-            )
+            ),
+            settings.max_output_bytes,
         )
 
     def get(self, name: str) -> Tool | None:
@@ -49,3 +51,8 @@ class ToolRegistry:
         bash = self._tools["bash"]
         if isinstance(bash, BashTool):
             bash.validate_runtime()
+
+    def model_message_budget(self) -> int | None:
+        """返回所有工具最终模型消息的统一字节上限。"""
+
+        return self._model_message_budget

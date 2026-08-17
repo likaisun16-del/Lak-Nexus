@@ -34,8 +34,8 @@ class ReadFileTool:
     )
 
     def __init__(self, resolver: WorkspacePathResolver, max_lines: int, max_bytes: int) -> None:
-        if max_bytes <= 0:
-            raise ValueError("工具 read 配置错误：max_bytes 必须大于 0")
+        if max_bytes < 4:
+            raise ValueError("工具 read 配置错误：max_bytes 至少为 4，才能保证截断游标可推进")
         self.resolver = resolver
         self.max_lines = max_lines
         self.max_bytes = max_bytes

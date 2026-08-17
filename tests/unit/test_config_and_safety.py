@@ -52,6 +52,11 @@ def test_config_rejects_non_directory_workspace(tmp_path: Path) -> None:
         Settings(workspace_root=file_path)
 
 
+def test_config_rejects_read_budget_that_cannot_advance_cursor(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="MAX_READ_BYTES 至少为 4"):
+        Settings(workspace_root=tmp_path, max_read_bytes=3)
+
+
 def test_workspace_rejects_parent_escape(tmp_path: Path) -> None:
     resolver = WorkspacePathResolver(tmp_path)
     with pytest.raises(PathAccessError, match="工作区外"):
@@ -68,6 +73,31 @@ def test_workspace_rejects_symlink_escape(tmp_path: Path) -> None:
         pytest.skip("当前 Windows 环境不允许创建符号链接")
     with pytest.raises(PathAccessError, match="工作区外"):
         WorkspacePathResolver(tmp_path).resolve("outside-link.txt", require_exists=True)
+
+
+def test_workspace_root_parent_name_does_not_mark_normal_file_sensitive(tmp_path: Path) -> None:
+    workspace = tmp_path / "private" / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "normal.txt").write_text("normal", encoding="utf-8")
+
+    resolved = WorkspacePathResolver(workspace).resolve("normal.txt", require_exists=True)
+
+    assert resolved.relative_path == "normal.txt"
+
+
+def test_command_policy_rejects_explicit_symlink_path(tmp_path: Path) -> None:
+    target = tmp_path / "target.txt"
+    target.write_text("sentinel", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("当前 Windows 环境不允许创建符号链接")
+
+    decision = CommandPolicy(WorkspacePathResolver(tmp_path)).evaluate("rg sentinel link.txt")
+
+    assert not decision.allowed
+    assert "符号链接" in decision.reason
 
 
 @pytest.mark.parametrize("sensitive_name", [".env", ".env.local", "credentials.json", "private.pem"])
@@ -91,6 +121,7 @@ def test_shared_workspace_policy_rejects_sensitive_bash_paths(path: str) -> None
         ("pwd && git status", "组合"),
         ("rm -rf .", "允许列表"),
         ("git push", "不允许"),
+        ("git diff", "只允许只读展示选项"),
         ("python -c 'print(1)'", "compileall"),
         ("rg SENTINEL .env", "敏感资源"),
         ("rg SENTINEL credentials.json", "敏感资源"),
@@ -111,7 +142,18 @@ def test_command_policy_allows_read_only_commands() -> None:
     assert policy.check("python -m compileall src").allowed
     decision = policy.check("rg --files")
     assert decision.allowed
-    assert decision.argv == ("rg", "--files")
+    assert decision.argv[:2] == ("rg", "--files")
+    assert "--no-follow" in decision.argv
+    assert "!**/credentials.json" in decision.argv
+
+
+def test_command_policy_protects_recursive_rg_root() -> None:
+    decision = CommandPolicy().check("rg SENTINEL .")
+
+    assert decision.argv[:3] == ("rg", "SENTINEL", ".")
+    assert decision.argv[-2:] == ("--glob", "!**/private/**")
+    assert "!**/.env*" in decision.argv
+    assert "!**/.ssh/**" in decision.argv
 
 
 @pytest.mark.parametrize("command", ["rg --files -g '*.py'", "rg --files *.py", "pwd $PWD"])

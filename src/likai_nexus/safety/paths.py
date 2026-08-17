@@ -95,11 +95,11 @@ class WorkspacePathResolver:
             raise PathAccessError(
                 f"路径访问被拒绝：{raw_path!r} 解析后位于工作区外：{resolved}"
             )
-        if reject_symlink and lexical_path.is_symlink():
-            raise PathAccessError(f"路径访问被拒绝：不允许通过符号链接写入：{raw_path!r}")
+        if reject_symlink and self._contains_link(lexical_path):
+            raise PathAccessError(f"路径访问被拒绝：不允许通过符号链接或目录连接访问：{raw_path!r}")
         exists = resolved.exists()
         relative = self._relative(resolved)
-        if self._is_sensitive_path(resolved):
+        if self._is_sensitive_path(relative):
             raise PathAccessError(
                 f"路径访问被拒绝：目标 {relative} 可能包含密钥或凭据，默认禁止工具访问"
             )
@@ -110,10 +110,32 @@ class WorkspacePathResolver:
         return ResolvedPath(resolved, relative, exists)
 
     @staticmethod
-    def _is_sensitive_path(path: Path) -> bool:
+    def _is_sensitive_path(path: object) -> bool:
         """默认拒绝环境文件、私钥和凭据文件，避免工具把密钥送入模型上下文。"""
 
         return WorkspaceAccessPolicy.is_sensitive_path(path)
+
+    def _contains_link(self, path: Path) -> bool:
+        """检查输入路径到工作区根之间的符号链接和 Windows 目录连接。"""
+
+        current = path
+        while current != self.root:
+            if self._is_link(current):
+                return True
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        return False
+
+    @staticmethod
+    def _is_link(path: Path) -> bool:
+        """兼容检查普通符号链接和 Python 3.12 的目录连接。"""
+
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        return bool(is_junction and is_junction())
 
     def _relative(self, path: Path) -> str:
         try:

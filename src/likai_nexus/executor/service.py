@@ -9,7 +9,7 @@ from typing import Any
 from ..errors import ApprovalDeniedError, AuditError, NexusError
 from ..orchestrator.schemas import ToolCall, ToolResult
 from ..safety.approval import ApprovalHandler
-from ..safety.redaction import action_fingerprint, content_sha256, redact_text
+from ..safety.redaction import action_fingerprint, content_sha256, redact_text, truncate_text
 from ..storage.audit_repository import AuditRepository
 from .registry import ToolRegistry
 
@@ -84,7 +84,11 @@ class ToolExecutor:
             output = await tool.execute(arguments, cancel_event)
             result = ToolResult(
                 tool_call.id,
-                self._model_content(output.content, output.metadata),
+                self._model_content(
+                    output.content,
+                    output.metadata,
+                    self.registry.model_message_budget(),
+                ),
                 is_error=output.is_error,
                 metadata=output.metadata,
             )
@@ -229,8 +233,10 @@ class ToolExecutor:
         return str({"tool": tool_name, "fingerprint": action_fingerprint(projection), **projection})
 
     @staticmethod
-    def _model_content(content: str, metadata: dict[str, Any]) -> str:
-        """把安全工具状态附加到模型消息，使截断和续读游标不会依赖被截断正文。"""
+    def _model_content(
+        content: str, metadata: dict[str, Any], budget: int | None = None
+    ) -> str:
+        """在统一字节预算内保留正文和安全状态，避免截断信息被二次截掉。"""
 
         allowed_keys = {
             "path",
@@ -252,9 +258,44 @@ class ToolExecutor:
             key: value for key, value in metadata.items() if key in allowed_keys
         }
         if not safe_metadata:
-            return content
-        serialized = json.dumps(safe_metadata, ensure_ascii=False, sort_keys=True)
-        return f"{content}\n[工具状态] {serialized}"
+            return truncate_text(content, budget)[0] if budget is not None else content
+        status = ToolExecutor._status_envelope(safe_metadata, budget)
+        if budget is None:
+            return content + status
+        body_budget = max(0, budget - len(status.encode("utf-8")))
+        body = ToolExecutor._bounded_model_body(
+            content, body_budget, bool(safe_metadata.get("truncated"))
+        )
+        return body + status
+
+    @staticmethod
+    def _status_envelope(metadata: dict[str, Any], budget: int | None) -> str:
+        """按优先级压缩状态字段，确保小预算仍能传递游标或截断状态。"""
+
+        serialized = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
+        status = f"\n[工具状态] {serialized}"
+        if budget is None or len(status.encode("utf-8")) <= budget:
+            return status
+        priority = ("next_cursor", "truncated", "exit_code", "timed_out", "cancelled")
+        compact = {key: metadata[key] for key in priority if key in metadata}
+        serialized = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+        status = f"\n[状态] {serialized}"
+        if len(status.encode("utf-8")) <= budget:
+            return status
+        return "!" if metadata.get("truncated") else ""
+
+    @staticmethod
+    def _bounded_model_body(content: str, budget: int, truncated: bool) -> str:
+        """截取模型正文并尽量保留中文截断标记，状态信封负责最终可见性。"""
+
+        if not truncated:
+            return truncate_text(content, budget)[0]
+        marker = "\n[输出已截断]"
+        if len(marker.encode("utf-8")) > budget:
+            return truncate_text(content, budget)[0]
+        source = content.removesuffix(marker)
+        prefix, _ = truncate_text(source, budget - len(marker.encode("utf-8")))
+        return prefix + marker
 
     @staticmethod
     def _audit_summary(tool_name: str, metadata: dict[str, Any], is_error: bool) -> str:

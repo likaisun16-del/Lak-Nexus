@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from likai_nexus.errors import ConfigError, ModelBackendError, ToolExecutionError
+from likai_nexus.executor.service import ToolExecutor
 from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.models.openai_backend import OpenAICompatibleBackend
 from likai_nexus.orchestrator.schemas import ChatMessage, ToolCall
@@ -103,6 +104,18 @@ def test_bash_truncation_marker_stays_inside_budget(settings) -> None:
 
     assert len(message.encode()) <= 64
     assert "输出已截断" in message
+
+
+def test_model_tool_message_budget_preserves_safe_status() -> None:
+    message = ToolExecutor._model_content(
+        "x" * 500,
+        {"next_cursor": "0:5", "truncated": True, "bytes": 500},
+        64,
+    )
+
+    assert len(message.encode()) <= 64
+    assert "next_cursor" in message
+    assert "truncated" in message
 
 
 @pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")

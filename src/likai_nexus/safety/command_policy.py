@@ -7,8 +7,8 @@ import shlex
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from ..errors import CommandDeniedError, ValidationError
-from .paths import WorkspaceAccessPolicy
+from ..errors import CommandDeniedError, NexusError, ValidationError
+from .paths import WorkspaceAccessPolicy, WorkspacePathResolver
 
 # 作用：阻断会让原始字符串重新进入 Shell 解释器的语法；Bash 工具随后只执行 argv。
 _META = (
@@ -33,6 +33,47 @@ _META = (
 _NETWORK_COMMANDS = {"curl", "wget", "nc", "ncat", "ssh", "scp", "sftp", "telnet", "ftp"}
 _DANGEROUS_GIT = {"clone", "fetch", "pull", "push", "remote", "submodule"}
 _SAFE_OPTION = {"-a", "-l", "-la", "-al", "-n", "-i", "-L", "--files", "--short"}
+_RG_PROTECTED_ARGS = (
+    "--no-follow",
+    "--glob",
+    "!.env*",
+    "--glob",
+    "!**/.env*",
+    "--glob",
+    "!**/.netrc",
+    "--glob",
+    "!**/.npmrc",
+    "--glob",
+    "!**/.pypirc",
+    "--glob",
+    "!**/credentials",
+    "--glob",
+    "!**/credentials.json",
+    "--glob",
+    "!**/secrets",
+    "--glob",
+    "!**/secrets.json",
+    "--glob",
+    "!**/id_rsa",
+    "--glob",
+    "!**/id_ed25519",
+    "--glob",
+    "!**/*.pem",
+    "--glob",
+    "!**/*.p12",
+    "--glob",
+    "!**/*.pfx",
+    "--glob",
+    "!**/*.key",
+    "--glob",
+    "!**/.aws/**",
+    "--glob",
+    "!**/.gnupg/**",
+    "--glob",
+    "!**/.ssh/**",
+    "--glob",
+    "!**/private/**",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +88,9 @@ class CommandDecision:
 
 class CommandPolicy:
     """严格模式命令策略，不负责启动进程。"""
+
+    def __init__(self, resolver: WorkspacePathResolver | None = None) -> None:
+        self.resolver = resolver
 
     def evaluate(self, command: object) -> CommandDecision:
         if not isinstance(command, str) or not command.strip():
@@ -84,11 +128,14 @@ class CommandPolicy:
             validator(tokens[1:])
         except (CommandDeniedError, ValidationError) as exc:
             return CommandDecision(False, executable, str(exc))
+        argv = tuple(tokens)
+        if executable == "rg":
+            argv += _RG_PROTECTED_ARGS
         return CommandDecision(
             True,
             executable,
             "命令通过最小允许列表，仍需要人工审批",
-            tuple(tokens),
+            argv,
         )
 
     def check(self, command: object) -> CommandDecision:
@@ -104,23 +151,21 @@ class CommandPolicy:
         if args:
             raise CommandDeniedError("命令被拒绝：pwd 不接受额外参数")
 
-    @classmethod
-    def _ls(cls, args: list[str]) -> None:
+    def _ls(self, args: list[str]) -> None:
         for token in args:
             if token.startswith("-") and token not in _SAFE_OPTION:
                 raise CommandDeniedError(f"命令被拒绝：ls 选项不允许：{token}")
             if not token.startswith("-"):
-                cls._safe_path_token(token)
+                self._safe_path_token(token)
 
-    @classmethod
-    def _rg(cls, args: list[str]) -> None:
+    def _rg(self, args: list[str]) -> None:
         if not args:
             raise CommandDeniedError("命令被拒绝：rg 必须指定搜索模式或 --files")
         expect_glob = False
         pattern_seen = False
         for token in args:
             if expect_glob:
-                cls._safe_path_token(token)
+                self._safe_path_token(token)
                 expect_glob = False
                 continue
             if token in {"-n", "-i", "-l", "--files"}:
@@ -133,12 +178,11 @@ class CommandPolicy:
             if not pattern_seen and "--files" not in args:
                 pattern_seen = True
                 continue
-            cls._safe_path_token(token)
+            self._safe_path_token(token)
         if expect_glob:
             raise CommandDeniedError("命令被拒绝：rg 的 -g/--glob 缺少模式")
 
-    @classmethod
-    def _git(cls, args: list[str]) -> None:
+    def _git(self, args: list[str]) -> None:
         if not args or args[0] in _DANGEROUS_GIT:
             subcommand = args[0] if args else ""
             raise CommandDeniedError(f"命令被拒绝：git 子命令不允许：{subcommand or '缺失'}")
@@ -147,40 +191,36 @@ class CommandPolicy:
                 raise CommandDeniedError("命令被拒绝：git status 只允许无参数或 --short")
             return
         if args[0] == "diff":
-            allowed = {"--stat", "--name-only", "--check", "--cached"}
-            if any(token not in allowed for token in args[1:]):
+            allowed = {"--stat", "--name-only", "--check"}
+            if len(args) == 1 or any(token not in allowed for token in args[1:]):
                 raise CommandDeniedError("命令被拒绝：git diff 只允许只读展示选项")
             return
         raise CommandDeniedError(f"命令被拒绝：git 子命令不允许：{args[0]}")
 
-    @classmethod
-    def _pytest(cls, args: list[str]) -> None:
+    def _pytest(self, args: list[str]) -> None:
         allowed_prefixes = ("--maxfail=", "-k=")
         for token in args:
             if token in {"-q", "-x", "-s"} or token.startswith(allowed_prefixes):
                 continue
             if token.startswith("-"):
                 raise CommandDeniedError(f"命令被拒绝：pytest 选项不允许：{token}")
-            cls._safe_path_token(token)
+            self._safe_path_token(token)
 
-    @classmethod
-    def _ruff(cls, args: list[str]) -> None:
+    def _ruff(self, args: list[str]) -> None:
         if not args or args[0] != "check":
             raise CommandDeniedError("命令被拒绝：ruff 只允许 ruff check")
         for token in args[1:]:
             if token.startswith("-"):
                 raise CommandDeniedError(f"命令被拒绝：ruff 选项不允许：{token}")
-            cls._safe_path_token(token)
+            self._safe_path_token(token)
 
-    @classmethod
-    def _python(cls, args: list[str]) -> None:
+    def _python(self, args: list[str]) -> None:
         if len(args) < 3 or args[:2] != ["-m", "compileall"]:
             raise CommandDeniedError("命令被拒绝：python 只允许 python -m compileall <工作区路径>")
         for token in args[2:]:
-            cls._safe_path_token(token)
+            self._safe_path_token(token)
 
-    @staticmethod
-    def _safe_path_token(token: str) -> None:
+    def _safe_path_token(self, token: str) -> None:
         if token in {".", "./"}:
             return
         if token.startswith(("/", "\\", "~")) or re.match(r"^[A-Za-z]:", token):
@@ -191,3 +231,10 @@ class CommandPolicy:
             raise ValidationError("命令校验失败：参数包含 NUL 字符")
         if WorkspaceAccessPolicy.is_sensitive_path(token):
             raise CommandDeniedError(f"命令被拒绝：参数不能访问敏感资源：{token}")
+        if self.resolver is not None:
+            try:
+                self.resolver.resolve(token, reject_symlink=True)
+            except NexusError as exc:
+                raise CommandDeniedError(
+                    f"命令被拒绝：显式路径无法安全解析：{token}，原因：{exc}"
+                ) from exc
