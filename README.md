@@ -16,4 +16,4 @@ likai-nexus "读取 README.md 并总结项目定位"
 
 Windows 运行 Bash 工具时请在 `.env` 配置 Git Bash 的 `BASH_PATH`；程序会拒绝误用 WSL 的 `bash.exe`。
 
-`MAX_READ_BYTES` 限制 read 正文且必须至少为 4；`MAX_OUTPUT_BYTES` 限制最终回填模型的完整工具消息，包含状态信息，且必须至少为 64。
+`MAX_READ_BYTES` 限制 read 正文且必须至少为 4；最终模型消息会为 read 状态信封预留 128 字节，因此 read 的实际正文上限为 `min(MAX_READ_BYTES, MAX_OUTPUT_BYTES - 128)`。`MAX_OUTPUT_BYTES` 必须至少为 132。

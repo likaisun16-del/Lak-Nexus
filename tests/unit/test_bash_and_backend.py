@@ -96,13 +96,13 @@ def test_bash_truncation_marker_stays_inside_budget(settings) -> None:
     settings = settings.__class__(
         workspace_root=settings.workspace_root,
         database_path=settings.database_path,
-        max_output_bytes=64,
+        max_output_bytes=132,
     )
     tool = BashTool(settings, CommandPolicy())
 
     message = tool._bounded_message("Bash 执行成功：退出码 0\n", "x" * 500, True)
 
-    assert len(message.encode()) <= 64
+    assert len(message.encode()) <= 132
     assert "输出已截断" in message
 
 
@@ -136,7 +136,7 @@ def test_bash_captures_nonzero_exit_and_truncates_output(settings) -> None:
         workspace_root=settings.workspace_root,
         database_path=settings.database_path,
         bash_path=settings.bash_path,
-        max_output_bytes=64,
+        max_output_bytes=132,
     )
     output_file = settings.workspace_root / "output.txt"
     output_file.write_text("x\n" * 100, encoding="utf-8")

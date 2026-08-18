@@ -110,7 +110,7 @@ git diff --check：通过
 
 - `WorkspaceAccessPolicy` 同时生成文件工具和 `rg` 使用的排除 glob，并启用 `--glob-case-insensitive`，覆盖大小写变体的敏感文件、后缀和目录。
 - 从模型可调用的 Git 允许列表中移除 `git diff --check`，避免尾随空格违规行正文回填模型。
-- `MAX_OUTPUT_BYTES` 至少为 64；未知工具、参数/审批/执行异常和正常工具结果统一经过消息预算格式化出口，并保留错误类型、截断和游标状态。
+- `MAX_OUTPUT_BYTES` 至少为 132；未知工具、参数/审批/执行异常和正常工具结果统一经过消息预算格式化出口，并保留错误类型、截断和游标状态。
 - 增加大小写敏感资源、`git diff --check` 哨兵和未知工具消息预算回归测试。
 
 ## 第四轮修复最终验证
@@ -123,3 +123,23 @@ git diff --check：通过
 ```
 
 2 个跳过项均与当前 Windows 环境不允许创建符号链接有关；真实模型 HTTP 取消仍按 Review 记录为本地 MVP 的 best-effort 限制。
+
+## 第五轮 Review 修复记录
+
+依据 `docs/Review/REVIEW.md` 的第五轮 `CHANGES_REQUIRED` 结论，完成：
+
+- 为 read 状态信封定义 128 字节预留量；`ToolRegistry` 将 `min(MAX_READ_BYTES, MAX_OUTPUT_BYTES - 128)` 作为 ReadFileTool 的最终正文预算，避免 ToolExecutor 二次截断后继续使用旧游标。
+- read 回填模型时只发送 `next_cursor` 和 `truncated` 状态，`ToolResult.metadata` 与 SQLite 审计继续使用同一份工具输出元数据；状态降级改为可解析的 JSON，不再返回无语义的 `!`。
+- `MAX_OUTPUT_BYTES` 最低值提高到 132，并同步 README、`.env.example` 和测试说明。
+- 增加 Fake Backend 驱动的 Agent Loop 连续分页测试，覆盖恰好达到预算、超过预算、长行、多行、3 字节中文和 4 字节表情符号，验证模型可见内容逐字节重组且无缺口。
+
+## 第五轮修复最终验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q：85 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过；仅有 Windows LF/CRLF 转换提示
+```
+
+2 个跳过项仍与当前 Windows 环境不允许创建符号链接有关；真实模型 HTTP 取消仍按 Review 记录为本地 MVP 的 best-effort 限制。

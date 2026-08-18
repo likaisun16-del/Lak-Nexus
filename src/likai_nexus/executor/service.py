@@ -273,9 +273,17 @@ class ToolExecutor:
             "diff_truncated",
             "error_type",
         }
-        safe_metadata = {
-            key: value for key, value in metadata.items() if key in allowed_keys
-        }
+        if "next_cursor" in metadata:
+            # read 的正文预算已由 Registry 预留状态空间，这里只回填游标和截断状态，避免再次挤压正文。
+            safe_metadata = {
+                key: metadata[key]
+                for key in ("next_cursor", "truncated")
+                if key in metadata
+            }
+        else:
+            safe_metadata = {
+                key: value for key, value in metadata.items() if key in allowed_keys
+            }
         if not safe_metadata:
             return truncate_text(content, budget)[0] if budget is not None else content
         status = ToolExecutor._status_envelope(safe_metadata, budget)
@@ -287,7 +295,9 @@ class ToolExecutor:
             status = ToolExecutor._status_envelope(safe_metadata, budget)
             body_budget = max(0, budget - len(status.encode("utf-8")))
         body = ToolExecutor._bounded_model_body(
-            content, body_budget, bool(safe_metadata.get("truncated"))
+            content,
+            body_budget,
+            bool(safe_metadata.get("truncated")) and "next_cursor" not in metadata,
         )
         return body + status
 
@@ -312,7 +322,9 @@ class ToolExecutor:
         status = f"\n[状态] {serialized}"
         if len(status.encode("utf-8")) <= budget:
             return status
-        return "!" if metadata.get("truncated") else ""
+        minimal = {"truncated": True} if metadata.get("truncated") else {}
+        fallback = f"\n[状态] {json.dumps(minimal, ensure_ascii=False, separators=(',', ':'))}"
+        return truncate_text(fallback, budget)[0] if budget is not None else fallback
 
     @staticmethod
     def _bounded_model_body(content: str, budget: int, truncated: bool) -> str:

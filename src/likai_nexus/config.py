@@ -12,6 +12,13 @@ from .errors import ConfigError
 
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# read 正文必须为最终模型状态信封预留空间；Registry 用同一常量计算实际正文预算。
+READ_STATUS_RESERVE_BYTES = 128
+MIN_READ_BYTES = 4
+MIN_OUTPUT_BYTES = READ_STATUS_RESERVE_BYTES + MIN_READ_BYTES
+DEFAULT_OUTPUT_BYTES = 64 * 1024
+DEFAULT_READ_BYTES = DEFAULT_OUTPUT_BYTES - READ_STATUS_RESERVE_BYTES
+
 
 def _positive_int(value: str, name: str) -> int:
     try:
@@ -73,9 +80,9 @@ class Settings:
     bash_path: Path | None = None
     default_bash_timeout_seconds: int = 30
     max_bash_timeout_seconds: int = 120
-    max_output_bytes: int = 64 * 1024
+    max_output_bytes: int = DEFAULT_OUTPUT_BYTES
     max_read_lines: int = 2_000
-    max_read_bytes: int = 64 * 1024
+    max_read_bytes: int = DEFAULT_READ_BYTES
     max_turns: int = 20
     model_timeout_seconds: int = 60
     api_key: str | None = None
@@ -109,10 +116,15 @@ class Settings:
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"配置错误：{name} 必须大于 0")
-        if self.max_output_bytes < 64:
-            raise ConfigError("配置错误：MAX_OUTPUT_BYTES 至少为 64，才能容纳工具状态信封")
-        if self.max_read_bytes < 4:
-            raise ConfigError("配置错误：MAX_READ_BYTES 至少为 4，才能保证截断游标可推进")
+        if self.max_output_bytes < MIN_OUTPUT_BYTES:
+            raise ConfigError(
+                f"配置错误：MAX_OUTPUT_BYTES 至少为 {MIN_OUTPUT_BYTES}，"
+                "才能同时容纳 read 正文和状态信封"
+            )
+        if self.max_read_bytes < MIN_READ_BYTES:
+            raise ConfigError(
+                f"配置错误：MAX_READ_BYTES 至少为 {MIN_READ_BYTES}，才能保证截断游标可推进"
+            )
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -146,13 +158,13 @@ class Settings:
             default_bash_timeout_seconds=default_timeout,
             max_bash_timeout_seconds=max_timeout,
             max_output_bytes=_positive_int(
-                values.get("MAX_OUTPUT_BYTES", str(64 * 1024)), "MAX_OUTPUT_BYTES"
+                values.get("MAX_OUTPUT_BYTES", str(DEFAULT_OUTPUT_BYTES)), "MAX_OUTPUT_BYTES"
             ),
             max_read_lines=_positive_int(
                 values.get("MAX_READ_LINES", "2000"), "MAX_READ_LINES"
             ),
             max_read_bytes=_positive_int(
-                values.get("MAX_READ_BYTES", str(64 * 1024)), "MAX_READ_BYTES"
+                values.get("MAX_READ_BYTES", str(DEFAULT_READ_BYTES)), "MAX_READ_BYTES"
             ),
             max_turns=_positive_int(values.get("MAX_TURNS", "20"), "MAX_TURNS"),
             model_timeout_seconds=_positive_int(

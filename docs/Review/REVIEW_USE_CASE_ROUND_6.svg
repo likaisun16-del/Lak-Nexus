@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840">
+  <rect width="1400" height="840" fill="white"/>
+  <text x="700" y="42" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">立凯中枢 - 第六轮代码复审用例图</text>
+
+  <!-- Actor，W=340 -->
+  <circle cx="60" cy="322" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="340" x2="60" y2="380" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="358" x2="85" y2="358" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="380" x2="38" y2="410" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="380" x2="82" y2="410" stroke="#333" stroke-width="2"/>
+  <text x="60" y="430" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Reviewer</text>
+
+  <!-- 域节点，一级用例 y=100..580，中位数=340 -->
+  <ellipse cx="200" cy="340" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="336" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">第六轮</text>
+  <text x="200" y="352" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">代码复审域</text>
+  <line x1="78" y1="340" x2="108" y2="340" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <!-- 域到一级用例 -->
+  <g stroke="#cccccc" stroke-width="1">
+    <line x1="290" y1="340" x2="360" y2="100"/>
+    <line x1="290" y1="340" x2="360" y2="180"/>
+    <line x1="290" y1="340" x2="360" y2="260"/>
+    <line x1="290" y1="340" x2="360" y2="340"/>
+    <line x1="290" y1="340" x2="360" y2="420"/>
+    <line x1="290" y1="340" x2="360" y2="500"/>
+    <line x1="290" y1="340" x2="360" y2="580"/>
+  </g>
+
+  <!-- 一级用例 -->
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">预算预留改造</text>
+
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">read 游标连续性</text>
+
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">状态信封改造</text>
+
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="345" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新增消费边界测试</text>
+
+  <ellipse cx="460" cy="420" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="425" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">安全与审计回归</text>
+
+  <ellipse cx="460" cy="500" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="505" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">非阻断优化建议</text>
+
+  <ellipse cx="460" cy="580" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="585" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审查结论：PASS</text>
+
+  <!-- 一级到二级 -->
+  <g stroke="#cccccc" stroke-width="1">
+    <line x1="560" y1="100" x2="600" y2="100"/>
+    <line x1="560" y1="180" x2="600" y2="180"/>
+    <line x1="560" y1="260" x2="600" y2="260"/>
+    <line x1="560" y1="340" x2="600" y2="340"/>
+    <line x1="560" y1="420" x2="600" y2="420"/>
+    <line x1="560" y1="500" x2="600" y2="500"/>
+    <line x1="560" y1="580" x2="600" y2="580"/>
+  </g>
+
+  <!-- 二级用例 -->
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="97" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">min(read, output-128)</text>
+  <text x="700" y="113" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">统一正文预算</text>
+
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="177" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">无缺口</text>
+  <text x="700" y="193" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">无重复</text>
+
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="257" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">游标 + 截断状态</text>
+  <text x="700" y="273" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">JSON 可解析</text>
+
+  <ellipse cx="700" cy="340" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="337" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">多页 / 多行 / UTF-8</text>
+  <text x="700" y="353" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">逐字节重组</text>
+
+  <ellipse cx="700" cy="420" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="417" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">策略未放宽</text>
+  <text x="700" y="433" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">.env 保持忽略</text>
+
+  <ellipse cx="700" cy="500" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="497" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">配置吞吐与协议不变量</text>
+  <text x="700" y="513" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">作为 P2 记录</text>
+
+  <ellipse cx="700" cy="580" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="577" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地四工具 MVP</text>
+  <text x="700" y="593" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">可进入提交阶段</text>
+
+  <!-- 建议拆分到三级 -->
+  <line x1="800" y1="500" x2="840" y2="460" stroke="#cccccc" stroke-width="1"/>
+  <line x1="800" y1="500" x2="840" y2="540" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="940" cy="460" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="940" y="457" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">132 字节标注为</text>
+  <text x="940" y="473" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">协议下限</text>
+  <ellipse cx="940" cy="540" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="940" y="537" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">锁定 128 字节</text>
+  <text x="940" y="553" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">状态预留不变量</text>
+
+  <!-- 图例 -->
+  <rect x="1080" y="70" width="270" height="250" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1215" y="98" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">图例</text>
+  <ellipse cx="1170" cy="130" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1170" y="135" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">已有能力</text>
+  <ellipse cx="1170" cy="180" rx="70" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1170" y="185" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新增验证/结论</text>
+  <ellipse cx="1170" cy="230" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1170" y="235" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本轮改造</text>
+  <ellipse cx="1170" cy="280" rx="70" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1170" y="285" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">复审域</text>
+
+  <rect x="330" y="676" width="740" height="104" rx="12" fill="#f4f8ff" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="712" text-anchor="middle" font-size="17" font-weight="bold" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">结论：PASS</text>
+  <text x="700" y="740" text-anchor="middle" font-size="13" fill="#234f86" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">read 分页游标与模型可见正文已恢复一致；85 passed，2 skipped，无新增阻断项</text>
+  <text x="700" y="762" text-anchor="middle" font-size="12" fill="#5b6f88" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">远程接入前仍需 OS 隔离、真实模型及时取消与不可跳过的链接安全测试</text>
+</svg>

@@ -58,8 +58,8 @@ def test_config_rejects_read_budget_that_cannot_advance_cursor(tmp_path: Path) -
 
 
 def test_config_rejects_output_budget_without_status_envelope(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError, match="MAX_OUTPUT_BYTES 至少为 64"):
-        Settings(workspace_root=tmp_path, max_output_bytes=63)
+    with pytest.raises(ConfigError, match="MAX_OUTPUT_BYTES 至少为 132"):
+        Settings(workspace_root=tmp_path, max_output_bytes=131)
 
 
 def test_workspace_rejects_parent_escape(tmp_path: Path) -> None:

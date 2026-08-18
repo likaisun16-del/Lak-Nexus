@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from ..config import Settings
+from ..config import READ_STATUS_RESERVE_BYTES, Settings
 from ..safety.command_policy import CommandPolicy
 from ..safety.paths import WorkspacePathResolver
 from .base import Tool
@@ -25,9 +25,14 @@ class ToolRegistry:
     def create(cls, settings: Settings) -> ToolRegistry:
         resolver = WorkspacePathResolver(settings.workspace_root)
         policy = CommandPolicy(resolver)
+        # read 必须按最终模型消息预算生成游标，避免 ToolExecutor 二次截断正文后跳过字节。
+        read_bytes = min(
+            settings.max_read_bytes,
+            settings.max_output_bytes - READ_STATUS_RESERVE_BYTES,
+        )
         return cls(
             (
-                ReadFileTool(resolver, settings.max_read_lines, settings.max_read_bytes),
+                ReadFileTool(resolver, settings.max_read_lines, read_bytes),
                 WriteFileTool(resolver),
                 EditFileTool(resolver, settings.max_output_bytes),
                 BashTool(settings, policy),

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
+
+import pytest
 
 from likai_nexus.errors import TaskAlreadyExistsError
 from likai_nexus.models.fake import FakeModelBackend
@@ -65,6 +68,71 @@ def test_agent_loop_reads_then_returns_final_answer(runtime) -> None:
     assert '"next_cursor": "1:0"' in backend.messages[1][-1].content
     assert len(audit.list_tool_calls("loop-1")) == 1
     assert tasks.get("loop-1")["status"] == TaskStatus.SUCCESS.value
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        b"x" * 128,
+        b"x" * 129,
+        ("三" * 20 + "🙂" * 20 + "尾").encode("utf-8"),
+        ("line\n" * 40).encode("utf-8"),
+    ),
+)
+def test_agent_loop_reassembles_read_pages_without_gaps(runtime, content: bytes) -> None:
+    """验证最终模型消息预算不会改变 read 游标，确保分页重组逐字节一致。"""
+
+    settings, _, tasks, audit, _, executor = runtime
+    path = settings.workspace_root / "paged.txt"
+    path.write_bytes(content)
+
+    class PagingBackend:
+        def __init__(self) -> None:
+            self.call_count = 0
+            self.tool_messages = []
+
+        async def complete(self, messages, tools, cancel_event=None):
+            self.call_count += 1
+            self.tool_messages = [message for message in messages if message.role == "tool"]
+            if not self.tool_messages:
+                return AssistantTurn("", (ToolCall("read-0", "read", {"path": path.name}),))
+            latest = self.tool_messages[-1].content
+            if not re.search(r'"truncated"\s*:\s*true', latest):
+                return AssistantTurn("读取完成")
+            match = re.search(r'"next_cursor"\s*:\s*"(\d+):(\d+)"', latest)
+            assert match, latest
+            return AssistantTurn(
+                "",
+                (
+                    ToolCall(
+                        f"read-{len(self.tool_messages)}",
+                        "read",
+                        {
+                            "path": path.name,
+                            "offset": int(match.group(1)),
+                            "byte_offset": int(match.group(2)),
+                        },
+                    ),
+                ),
+            )
+
+    backend = PagingBackend()
+    result = run(
+        AgentLoop(backend, executor, tasks, max_turns=10).run(
+            "完整读取 paged.txt", task_id=f"loop-paging-{len(content)}"
+        )
+    )
+
+    assert result.status is TaskStatus.SUCCESS
+    bodies = [
+        re.split(r"\n\[(?:工具)?状态\] ", message.content, maxsplit=1)[0]
+        for message in backend.tool_messages
+    ]
+    assert "".join(bodies).encode("utf-8") == content
+    assert all(len(message.content.encode("utf-8")) <= settings.max_output_bytes for message in backend.tool_messages)
+    summaries = [row["result_summary"] for row in audit.list_tool_calls(result.task_id)]
+    assert any("截断=True" in summary for summary in summaries[:-1]) or len(summaries) == 1
+    assert "截断=False" in summaries[-1]
 
 
 def test_agent_loop_unknown_tool_is_returned_to_model(runtime) -> None:
