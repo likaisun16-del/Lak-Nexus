@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="620" viewBox="0 0 1400 620">
+  <rect width="1400" height="620" fill="white"/>
+  <text x="700" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC">立凯中枢四工具 MVP - 审查用例图</text>
+
+  <!-- Actor：W=260，与域节点垂直对齐 -->
+  <circle cx="60" cy="242" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="260" x2="60" y2="300" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="278" x2="85" y2="278" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="300" x2="38" y2="330" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="300" x2="82" y2="330" stroke="#333" stroke-width="2"/>
+  <text x="60" y="350" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC">本地用户</text>
+
+  <!-- 域节点：一级用例 y=100/180/260/340/420，中位数=260 -->
+  <ellipse cx="200" cy="260" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="265" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC">本地智能体域</text>
+  <line x1="78" y1="260" x2="108" y2="260" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <!-- 一级用例 -->
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC">提交一次任务</text>
+
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC">调用四个工具</text>
+
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC">审批高风险操作</text>
+
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="345" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC">取消运行任务</text>
+
+  <ellipse cx="460" cy="420" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="425" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC">查看最终结果</text>
+
+  <!-- 域节点到一级用例 -->
+  <line x1="290" y1="260" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="340" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="420" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 四工具二级用例：均需按本次审查结论改造 -->
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="105" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC">read 读取文件</text>
+
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="185" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC">write 写入文件</text>
+
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="265" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC">edit 精确修改</text>
+
+  <ellipse cx="700" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="345" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC">bash 受控命令</text>
+
+  <line x1="560" y1="180" x2="600" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="340" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 图例 -->
+  <rect x="990" y="70" width="300" height="200" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1140" y="100" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC">图例</text>
+  <ellipse cx="1090" cy="130" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1090" y="135" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC">已有用例</text>
+  <ellipse cx="1090" cy="180" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1090" y="185" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC">需改造用例</text>
+  <ellipse cx="1090" cy="230" rx="70" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1090" y="235" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC">本地智能体域</text>
+
+  <text x="700" y="540" text-anchor="middle" font-size="14" fill="#555" font-family="Noto Sans SC">审查结论：核心用例已成形，但安全边界、审批、取消和审计仍需改造后才能通过 Reviewer 门禁。</text>
+</svg>

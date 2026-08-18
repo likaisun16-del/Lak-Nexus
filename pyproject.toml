@@ -1,0 +1,29 @@
+# 项目配置：定义 Python 3.12 工程、测试入口和 Ruff 检查范围。
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "likai-nexus"
+version = "0.1.0"
+description = "立凯中枢本地最小四工具智能体"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+likai-nexus = "likai_nexus.channels.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
