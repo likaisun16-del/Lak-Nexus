@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from ..safety.redaction import redact_text, safe_audit_identifier
 from .database import Database
 from .task_repository import utc_now
 
@@ -16,7 +17,13 @@ class AuditRepository:
         self.database = database
 
     def start_tool_call(
-        self, task_id: str, tool_call_id: str, tool_name: str, arguments_redacted: str
+        self,
+        task_id: str,
+        tool_call_id: str,
+        tool_name: str,
+        arguments_redacted: str,
+        *,
+        canonical_tool_name: bool = False,
     ) -> str:
         """记录工具调用开始，未知工具也必须先留下审计记录。"""
 
@@ -28,7 +35,15 @@ class AuditRepository:
                     audit_id, task_id, tool_name, tool_call_id, arguments_redacted, status, started_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (audit_id, task_id, tool_name, tool_call_id, arguments_redacted, "running", utc_now()),
+                (
+                    audit_id,
+                    task_id,
+                    safe_audit_identifier(tool_name, "tool", trusted=canonical_tool_name),
+                    safe_audit_identifier(tool_call_id, "call"),
+                    redact_text(arguments_redacted),
+                    "running",
+                    utc_now(),
+                ),
             )
         return audit_id
 
@@ -53,9 +68,9 @@ class AuditRepository:
                 (
                     status,
                     utc_now(),
-                    result_summary,
-                    error_type,
-                    error_message,
+                    redact_text(result_summary) if result_summary is not None else None,
+                    safe_audit_identifier(error_type, "error", trusted=True) if error_type else None,
+                    redact_text(error_message) if error_message is not None else None,
                     audit_id,
                 ),
             )
@@ -69,24 +84,26 @@ class AuditRepository:
         action_type: str,
         request_summary: str,
         decision: bool,
+        decision_source: str = "human",
     ) -> None:
-        """保存人工审批结果，审批摘要不包含完整文件内容或命令输出。"""
+        """保存人工或模式审批结果，摘要不包含完整文件内容或命令输出。"""
 
         with self.database.connection() as connection:
             connection.execute(
                 """
                 INSERT INTO approvals(
                     approval_id, task_id, tool_call_id, action_type,
-                    request_summary, decision, decided_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    request_summary, decision, decision_source, decided_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     uuid.uuid4().hex,
                     task_id,
-                    tool_call_id,
-                    action_type,
-                    request_summary,
+                    safe_audit_identifier(tool_call_id, "call"),
+                    safe_audit_identifier(action_type, "action", trusted=True),
+                    redact_text(request_summary),
                     "approved" if decision else "denied",
+                    decision_source,
                     utc_now(),
                 ),
             )
@@ -96,7 +113,17 @@ class AuditRepository:
 
         with self.database.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM tool_calls WHERE task_id = ? ORDER BY started_at, tool_call_id",
+                "SELECT * FROM tool_calls WHERE task_id = ? ORDER BY rowid",
+                (task_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_approvals(self, task_id: str) -> list[dict[str, Any]]:
+        """读取任务的审批及其来源，便于验证人工与模式自动决定。"""
+
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM approvals WHERE task_id = ? ORDER BY rowid",
                 (task_id,),
             ).fetchall()
         return [dict(row) for row in rows]

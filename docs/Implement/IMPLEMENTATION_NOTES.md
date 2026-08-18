@@ -143,3 +143,116 @@ git diff --check：通过；仅有 Windows LF/CRLF 转换提示
 ```
 
 2 个跳过项仍与当前 Windows 环境不允许创建符号链接有关；真实模型 HTTP 取消仍按 Review 记录为本地 MVP 的 best-effort 限制。
+
+## 下一阶段过程可观测、审查模式与工具扩展实施记录
+
+依据 `docs/Planner/NEXT_PHASE_OBSERVABILITY_REVIEW_MODES_TOOL_EXTENSIBILITY_PLAN.md`，本轮在保留原有执行主干的前提下完成：
+
+- 新增 `strict`、`relaxed`、`full-access` 三种固定任务审查模式，CLI 通过 `--review-mode` 选择，默认严格模式；完全访问要求输入 `FULL-ACCESS` 强确认，确认前不创建任务、不调用模型。
+- 新增结构化 `RuntimeEvent` 和事件接收器。CLI 默认展示任务、模型轮次、工具、安全检查、审批和结果过程，`--no-progress` 关闭展示；事件接收器故障被隔离，不改变任务结果。
+- Tool 基类提供保守的默认展示、参数审计、模型 metadata 和结果摘要；Registry 按显式工具集合动态返回规格并检查重复名称，Agent Loop、ToolExecutor 不再按内置工具名称分支。
+- strict 保持原有安全 argv；relaxed 使用每次人工审批的原始 Shell 脚本；full-access 使用任务级确认后的原始 Shell，并保留超时、取消、输出限制、环境清理和审计。
+- 任务表新增 `review_mode`，审批表新增 `decision_source`；启动时为旧数据库增量补列，旧任务默认为 `strict`、旧审批来源为 `legacy`，不覆盖已有记录。
+- full-access 读取敏感文件时对模型可见内容和过程结果做脱敏；写入、修改和 Bash 的展示/审计只保存安全摘要，不持久化正文、diff 或完整输出。
+- 统一所有任务终态过程事件和 CLI 结果输出的总轮数；增加 relaxed 审批拒绝后不执行原始 Shell 的回归测试。
+- 工具终态事件明确区分成功、失败、拒绝和取消，并为各终态补充耗时；扩展环境变量和输出脱敏规则，覆盖 `ACCESS_KEY`、`CLIENT_SECRET` 及 PEM 私钥块。
+- AgentLoop 在直接组装场景下默认继承 Executor 的审查模式、审批器和事件接收器，避免任务记录与实际执行策略分裂。
+
+本轮重要偏差：计划没有锁定文件名和具体类名，实际使用 `safety/review_mode.py`、`orchestrator/events.py` 和 Tool 基类完成契约收敛；未接入远程渠道，也未把 full-access 暴露给非 CLI 入口。
+
+本轮验证结果：
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q：103 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+git check-ignore -v --no-index .env：命中 .gitignore:1:.env
+```
+
+2 个跳过项仍与当前 Windows 环境的符号链接权限有关；下一阶段新增权限模式、原始 Shell 和数据库迁移已通过专项测试，待 Reviewer 对新权限模式和原始 Shell 风险复审。
+
+## 最新 Review 修复记录
+
+依据最新 `docs/Review/REVIEW.md` 的 `CHANGES_REQUIRED` 结论，完成以下修复：
+
+- Registry 只接收显式工具集合；内置工具组装移到 `executor/tools/__init__.py` 注册点，并增加工具名称与 `ToolSpec.name` 一致性校验。
+- Registry、ToolExecutor、AgentLoop 对审查模式执行一致性校验；任何 strict、relaxed、full-access 失配均在任务创建或模型调用前拒绝，避免权限策略和审计模式分裂。
+- Tool 基类增加模型状态字段优先级契约，ToolExecutor 只做通用预算压缩，不再维护内置 metadata 白名单；新增工具的自定义必要状态可在最小预算下保留。
+- Bash 截断后的 stdout/stderr 继续走保守脱敏路径；未闭合 PEM 私钥块、错误/超时/取消结果及 AgentLoop 最终模型回答均不会直接暴露敏感内容。
+- full-access 工具规格改为模式中性的路径说明，并补充 `..` 外部路径、外部已有文件覆盖、CLI 强确认拒绝、生产注册点扩展、full-access Bash 输出/环境/超时/取消边界测试。
+- 内置工具绑定实际审查模式，Registry 拒绝省略或错误传入的模式；Bash 结束路径显式释放 Windows Proactor 子进程 transport，避免取消后的管道回收警告。
+
+## 最新 Review 修复验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：114 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：通过
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+当前仍未读取或提交真实 `.env` 内容；符号链接测试是否可执行取决于 Windows 权限。
+
+## 最新复审修复记录
+
+依据最新 `docs/Review/REVIEW.md` 的 `CHANGES_REQUIRED` 结论，完成以下安全修复：
+
+- `AuditRepository` 成为不可信审计字段的最后安全边界：工具名、工具调用 ID、审批动作使用安全标识符；不安全值只保存固定标签和稳定哈希；参数摘要、审批摘要、结果摘要、错误类型和错误消息统一脱敏。
+- `ToolExecutor` 对未知工具的过程标签和参数摘要使用安全出口，避免模型提供的工具名和参数键进入展示或 SQLite；保留未知工具错误的可诊断语义。
+- CLI 的 `ConfigError`、`ModelBackendError`、未知异常、取消提示和最终模型结果统一调用 `redact_text()`，启动错误保留异常类型但不回显凭据内容。
+- 模型工具状态 metadata 增加通用防御性脱敏，扩展工具误返回 `api_token`、Bearer 或 `token=...` 时不会直接进入模型消息。
+- 新增已知/未知工具不可信字段审计扫描、三类 CLI 启动异常脱敏、`--no-progress` 实际运行、真实 `FULL-ACCESS` 精确匹配和扩展 metadata 脱敏测试。
+
+## 最新复审修复验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：122 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+git check-ignore -v --no-index .env：命中 .gitignore:1:.env
+```
+
+2 个跳过项仍是当前 Windows 权限不足导致的符号链接测试；进程树专项门禁仍建议在 Linux CI 或启用 Developer Mode 的 Windows job 中执行。当前实现等待 Reviewer 对最新 P1 修复复审。
+
+## 最新版 Review 修复记录
+
+依据最新版 `docs/Review/REVIEW.md` 的 P1/P2 问题清单，继续完成以下修复：
+
+- 不可信工具名、工具调用 ID 和未知参数字段默认只保存固定标签与稳定哈希；已注册工具名仅在执行器确认其为规范名称后保留可读值。
+- 配置整数解析错误不再回显原始环境变量值；补充包含 `sk-proj-...` 形态凭据的 Settings 和真实 CLI 入口测试。
+- 脱敏规则增加无标签的常见 OpenAI key、GitHub token 和 JWT 形态识别，扩展工具 metadata 进入模型消息前也统一处理。
+- 审计列表改按 SQLite 插入顺序返回，避免调用 ID 哈希后同一秒内的分页调用被哈希字典序重排。
+
+## 最新版 Review 修复验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：126 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+2 个跳过项仍是当前 Windows 权限不足导致的符号链接测试；进程树、符号链接和 EOF 专项门禁仍建议在 Linux CI 或启用 Developer Mode 的 Windows job 中执行。当前代码等待 Reviewer 对本轮 P1 修复复审，Review 文件中的结论尚未变更。
+
+## Review-3 P1 修复记录
+
+依据最新版 `docs/Review/REVIEW.md` 的 `P1-1`，修复审计故障异常路径重新拼接模型原始工具字段的问题：
+
+- `ToolExecutor` 暴露统一的安全工具标签出口；已注册工具使用 Registry 规范名，未知工具只使用固定标签与稳定哈希。
+- 审批审计写入失败的 `AuditError` 对调用 ID 使用与 SQLite 审计相同的 `call:<hash>` 表示，不再拼接模型原文。
+- `AgentLoop` 捕获工具异常时使用安全工具标签，任务错误、`task_finished` 事件和 SQLite `tasks.error_message` 均不回流原始工具名或调用 ID。
+- 新增启动审计失败、审批审计失败两条故障注入测试，扫描 AgentResult、任务记录、工具/审批审计和结构化事件。
+
+## Review-3 P1 修复验证
+
+```text
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_next_phase.py tests/unit/test_file_tools.py tests/unit/test_storage_and_loop.py -q：66 passed
+.\.venv\Scripts\python.exe -m pytest -q -rs：128 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+2 个跳过项仍是当前 Windows 权限不足导致的符号链接测试；进程树、符号链接和 EOF 仍属于 Review 标注的非阻断 P2 门禁。当前实现等待 Reviewer 对 Review-3 P1 修复复审。

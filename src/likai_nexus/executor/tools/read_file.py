@@ -9,21 +9,25 @@ from ...errors import ToolExecutionError, ValidationError
 from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import WorkspacePathResolver
-from ..base import ToolOutput
+from ...safety.redaction import action_fingerprint
+from ..base import Tool, ToolOutput
 from .common import require_arguments, require_string
 
 
-class ReadFileTool:
+class ReadFileTool(Tool):
     """只读文件工具，路径限制由共享 WorkspacePathResolver 完成。"""
 
     name = "read"
     spec = ToolSpec(
         name=name,
-        description="读取工作区内的 UTF-8 文本文件，支持按行分页。",
+        description="读取当前审查模式允许路径内的 UTF-8 文本文件，支持按行分页。",
         input_schema={
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "相对工作区路径"},
+                "path": {
+                    "type": "string",
+                    "description": "当前审查模式允许的文件路径；完全访问模式也支持绝对路径和工作区外路径",
+                },
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "byte_offset": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "default": 2000},
@@ -39,6 +43,7 @@ class ReadFileTool:
         self.resolver = resolver
         self.max_lines = max_lines
         self.max_bytes = max_bytes
+        self.review_mode = resolver.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -82,16 +87,20 @@ class ReadFileTool:
             )
         except UnicodeDecodeError as exc:
             raise ToolExecutionError(
-                f"读取文件失败：{resolved.relative_path} 不是有效 UTF-8 文本，无法按文本读取"
+                f"读取文件失败：{self._safe_path(resolved.relative_path)} 不是有效 UTF-8 文本，"
+                "无法按文本读取"
             ) from exc
         except OSError as exc:
             raise ToolExecutionError(
-                f"读取文件失败：目标 {resolved.relative_path}，原因：{type(exc).__name__}: {exc}"
+                f"读取文件失败：目标 {self._safe_path(resolved.relative_path)}，"
+                f"原因：{type(exc).__name__}: {exc}"
             ) from exc
+        if resolved.sensitive:
+            content = f"[已脱敏]：敏感文件内容未返回，字节数={bytes_read}"
         return ToolOutput(
             content=content,
             metadata={
-                "path": resolved.relative_path,
+                "path": self._safe_path(resolved.relative_path),
                 "offset": arguments["offset"],
                 "byte_offset": arguments["byte_offset"],
                 "next_offset": next_offset,
@@ -101,6 +110,44 @@ class ReadFileTool:
                 "bytes": bytes_read,
             },
         )
+
+    def display_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        path = self._safe_path(values.get("path"))
+        return (
+            f"read 参数摘要：路径={path}，offset={values.get('offset', 0)}，"
+            f"byte_offset={values.get('byte_offset', 0)}，limit={values.get('limit', self.max_lines)}"
+        )
+
+    def audit_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        projection = {
+            "path": self._safe_path(values.get("path")),
+            "offset": values.get("offset", 0),
+            "byte_offset": values.get("byte_offset", 0),
+            "limit": values.get("limit"),
+        }
+        return f"read 参数摘要：指纹={action_fingerprint(projection)}，投影={projection}"
+
+    def model_metadata(self, output: ToolOutput) -> dict[str, Any]:
+        return {
+            key: output.metadata[key]
+            for key in ("next_cursor", "truncated")
+            if key in output.metadata
+        }
+
+    def audit_summary(self, output: ToolOutput) -> str:
+        metadata = output.metadata
+        return (
+            f"read {'失败' if output.is_error else '成功'}：路径={self._safe_path(metadata.get('path'))}，"
+            f"字节数={metadata.get('bytes', 0)}，截断={metadata.get('truncated', False)}"
+        )
+
+    @staticmethod
+    def _safe_path(path: object) -> object:
+        if WorkspacePathResolver._is_sensitive_path(path):
+            return "[敏感路径]"
+        return path
 
     def _read(
         self, path, offset: int, byte_offset: int, limit: int

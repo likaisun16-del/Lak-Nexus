@@ -26,6 +26,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     request_text TEXT NOT NULL,
+                    review_mode TEXT NOT NULL DEFAULT 'strict',
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     started_at TEXT,
@@ -55,9 +56,34 @@ class Database:
                     action_type TEXT NOT NULL,
                     request_summary TEXT NOT NULL,
                     decision TEXT NOT NULL,
+                    decision_source TEXT NOT NULL DEFAULT 'legacy',
                     decided_at TEXT NOT NULL
                 );
                 """
+            )
+            self._migrate_tasks(connection)
+            self._migrate_approvals(connection)
+
+    @staticmethod
+    def _migrate_tasks(connection: sqlite3.Connection) -> None:
+        """为旧任务补充审查模式，旧记录按 strict 解释且不覆盖原数据。"""
+
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
+        if columns and "review_mode" not in columns:
+            connection.execute(
+                "ALTER TABLE tasks ADD COLUMN review_mode TEXT NOT NULL DEFAULT 'strict'"
+            )
+
+    @staticmethod
+    def _migrate_approvals(connection: sqlite3.Connection) -> None:
+        """为旧审批记录补充来源字段，保留既有人工决定和摘要。"""
+
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(approvals)").fetchall()
+        }
+        if columns and "decision_source" not in columns:
+            connection.execute(
+                "ALTER TABLE approvals ADD COLUMN decision_source TEXT NOT NULL DEFAULT 'legacy'"
             )
 
     @staticmethod

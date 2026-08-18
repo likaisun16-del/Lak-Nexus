@@ -15,6 +15,7 @@ class ApprovalRequest:
     summary: str
     fingerprint: str = ""
     audit_summary: str = ""
+    confirmation_token: str | None = None
 
 
 class ApprovalHandler(Protocol):
@@ -28,8 +29,16 @@ class CliApprovalHandler:
     """本地 CLI 审批：在工作线程中读取输入，避免阻塞事件循环。"""
 
     async def request(self, request: ApprovalRequest) -> bool:
-        prompt = f"\n需要审批 [{request.action_type}]：{request.summary}\n允许执行？[y/N] "
+        if request.confirmation_token:
+            prompt = (
+                f"\n需要强确认 [{request.action_type}]：{request.summary}\n"
+                f"请输入 {request.confirmation_token}："
+            )
+        else:
+            prompt = f"\n需要审批 [{request.action_type}]：{request.summary}\n允许执行？[y/N] "
         answer = await asyncio.to_thread(input, prompt)
+        if request.confirmation_token:
+            return answer.strip() == request.confirmation_token
         return answer.strip().lower() in {"y", "yes", "是", "允许"}
 
 

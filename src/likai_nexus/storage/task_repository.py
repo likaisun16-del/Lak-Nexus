@@ -7,6 +7,7 @@ from typing import Any
 
 from ..orchestrator.schemas import TaskStatus
 from ..safety.redaction import audit_text_summary, redact_text
+from ..safety.review_mode import ReviewMode, parse_review_mode
 from .database import Database
 
 
@@ -22,17 +23,27 @@ class TaskRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def create(self, task_id: str, request_text: str) -> bool:
+    def create(
+        self,
+        task_id: str,
+        request_text: str,
+        review_mode: ReviewMode | str = ReviewMode.STRICT,
+    ) -> bool:
         """创建任务；重复 ID 返回 False，绝不覆盖已有任务。"""
 
+        try:
+            mode = parse_review_mode(review_mode)
+        except ValueError as exc:
+            raise ValueError(f"任务创建失败：{exc}") from exc
         request_summary = audit_text_summary("任务请求", request_text)
         with self.database.connection() as connection:
             cursor = connection.execute(
                 """
-                INSERT OR IGNORE INTO tasks(task_id, request_text, status, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT OR IGNORE INTO tasks(
+                    task_id, request_text, review_mode, status, created_at
+                ) VALUES (?, ?, ?, ?, ?)
                 """,
-                (task_id, request_summary, TaskStatus.PENDING.value, utc_now()),
+                (task_id, request_summary, mode.value, TaskStatus.PENDING.value, utc_now()),
             )
             return cursor.rowcount == 1
 

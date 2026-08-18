@@ -11,21 +11,24 @@ from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import ResolvedPath, WorkspacePathResolver
 from ...safety.redaction import action_fingerprint, content_sha256, redact_text, truncate_text
-from ..base import ToolOutput
+from ..base import Tool, ToolOutput
 from .common import atomic_write, require_arguments, require_string
 
 
-class EditFileTool:
+class EditFileTool(Tool):
     """单块精确替换工具，零次或多次匹配都不会写入文件。"""
 
     name = "edit"
     spec = ToolSpec(
         name=name,
-        description="将已有文件中的唯一 old_text 精确替换为 new_text。",
+        description="将允许访问文件中的唯一 old_text 精确替换为 new_text。",
         input_schema={
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "相对工作区路径"},
+                "path": {
+                    "type": "string",
+                    "description": "当前审查模式允许的文件路径；完全访问模式也支持绝对路径和工作区外路径",
+                },
                 "old_text": {"type": "string", "description": "必须唯一出现的原文本"},
                 "new_text": {"type": "string", "description": "替换后的文本"},
             },
@@ -37,6 +40,7 @@ class EditFileTool:
     def __init__(self, resolver: WorkspacePathResolver, diff_limit_bytes: int = 64 * 1024) -> None:
         self.resolver = resolver
         self.diff_limit_bytes = diff_limit_bytes
+        self.review_mode = resolver.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -52,7 +56,9 @@ class EditFileTool:
     def check_safety(self, arguments: dict[str, Any]) -> None:
         self._resolve(arguments)
 
-    def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest:
+    def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest | None:
+        if self.resolver.review_mode.value != "strict":
+            return None
         resolved = self._resolve(arguments)
         try:
             text, _ = self._read_text(resolved)
@@ -113,31 +119,78 @@ class EditFileTool:
             text, bom = self._read_text(resolved)
         except UnicodeDecodeError as exc:
             raise ToolExecutionError(
-                f"修改文件失败：{resolved.relative_path} 不是有效 UTF-8 文本"
+                f"修改文件失败：{self._safe_path(resolved.relative_path)} 不是有效 UTF-8 文本"
             ) from exc
         except OSError as exc:
             raise ToolExecutionError(
-                f"修改文件失败：无法读取 {resolved.relative_path}，原因：{type(exc).__name__}: {exc}"
+                f"修改文件失败：无法读取 {self._safe_path(resolved.relative_path)}，"
+                f"原因：{type(exc).__name__}: {exc}"
             ) from exc
         old_text = self._normalize_newlines(arguments["old_text"], text)
         new_text = self._normalize_newlines(arguments["new_text"], text)
         matches = text.count(old_text)
         if matches == 0:
-            raise ToolExecutionError(f"修改文件失败：{resolved.relative_path} 未找到匹配文本")
+            raise ToolExecutionError(
+                f"修改文件失败：{self._safe_path(resolved.relative_path)} 未找到匹配文本"
+            )
         if matches != 1:
             raise ToolExecutionError(
-                f"修改文件失败：{resolved.relative_path} 匹配不唯一，共找到 {matches} 处"
+                f"修改文件失败：{self._safe_path(resolved.relative_path)} 匹配不唯一，"
+                f"共找到 {matches} 处"
             )
         if cancel_event and cancel_event.is_set():
             return ToolOutput("修改已取消：收到任务取消信号", is_error=True, metadata={"cancelled": True})
         updated = text.replace(old_text, new_text, 1)
         data = bom + updated.encode("utf-8")
-        atomic_write(resolved.path, data, resolved.relative_path)
-        diff = self._build_diff(text, updated, resolved.relative_path)
+        if resolved.sensitive:
+            diff = "[已脱敏]：敏感文件修改 diff 未返回"
+        else:
+            diff = self._build_diff(text, updated, str(resolved.relative_path))
+        atomic_write(resolved.path, data, str(self._safe_path(resolved.relative_path)))
         diff, truncated = truncate_text(diff, self.diff_limit_bytes)
         return ToolOutput(
-            content=f"已修改文件：{resolved.relative_path}\n{diff}",
-            metadata={"path": resolved.relative_path, "matches": 1, "diff_truncated": truncated},
+            content=f"已修改文件：{self._safe_path(resolved.relative_path)}\n{diff}",
+            metadata={
+                "path": self._safe_path(resolved.relative_path),
+                "matches": 1,
+                "diff_truncated": truncated,
+            },
+        )
+
+    def display_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        old_text = values.get("old_text")
+        new_text = values.get("new_text")
+        return (
+            f"edit 参数摘要：路径={self._safe_path(values.get('path'))}，"
+            f"old 字节数={self._text_bytes(old_text)}，new 字节数={self._text_bytes(new_text)}，"
+            f"old sha256={self._text_hash(old_text)}，new sha256={self._text_hash(new_text)}"
+        )
+
+    def audit_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        projection = {
+            "path": self._safe_path(values.get("path")),
+            "old_text_bytes": self._text_bytes(values.get("old_text")),
+            "new_text_bytes": self._text_bytes(values.get("new_text")),
+            "old_text_sha256": self._text_hash(values.get("old_text")),
+            "new_text_sha256": self._text_hash(values.get("new_text")),
+        }
+        return f"edit 参数摘要：指纹={action_fingerprint(projection)}，投影={projection}"
+
+    def model_metadata(self, output: ToolOutput) -> dict[str, Any]:
+        return {
+            key: output.metadata[key]
+            for key in ("path", "matches", "diff_truncated", "cancelled")
+            if key in output.metadata
+        }
+
+    def audit_summary(self, output: ToolOutput) -> str:
+        metadata = output.metadata
+        return (
+            f"edit {'失败' if output.is_error else '成功'}：路径={self._safe_path(metadata.get('path'))}，"
+            f"匹配数={metadata.get('matches', 0)}，"
+            f"diff截断={metadata.get('diff_truncated', False)}"
         )
 
     def _resolve(self, arguments: dict[str, Any]) -> ResolvedPath:
@@ -168,3 +221,17 @@ class EditFileTool:
                 tofile=f"b/{relative_path}",
             )
         )
+
+    @staticmethod
+    def _text_bytes(value: object) -> int | None:
+        return len(value.encode("utf-8")) if isinstance(value, str) else None
+
+    @staticmethod
+    def _text_hash(value: object) -> str | None:
+        return content_sha256(value) if isinstance(value, str) else None
+
+    @staticmethod
+    def _safe_path(path: object) -> object:
+        if WorkspacePathResolver._is_sensitive_path(path):
+            return "[敏感路径]"
+        return path

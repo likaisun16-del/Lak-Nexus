@@ -6,17 +6,42 @@ import argparse
 import asyncio
 import sys
 import uuid
+from typing import TextIO
 
 from ..config import Settings
 from ..errors import ConfigError, ModelBackendError
+from ..orchestrator.events import NullEventSink, RuntimeEvent
 from ..orchestrator.schemas import TaskStatus
 from ..runtime import build_runtime
+from ..safety.redaction import redact_text
+from ..safety.review_mode import ReviewMode
+
+
+class ConsoleEventSink:
+    """把结构化运行事件实时渲染为安全的 CLI 过程行。"""
+
+    def __init__(self, stream: TextIO | None = None) -> None:
+        self.stream = stream or sys.stdout
+
+    def emit(self, event: RuntimeEvent) -> None:
+        print(f"[过程] {event.message}", file=self.stream, flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
     """构建一次性任务 CLI，参数解析与业务执行保持分离。"""
 
-    parser = argparse.ArgumentParser(description="立凯中枢本地最小四工具智能体")
+    parser = argparse.ArgumentParser(description="立凯中枢本地最小智能体")
+    parser.add_argument(
+        "--review-mode",
+        choices=[mode.value for mode in ReviewMode],
+        default=ReviewMode.STRICT.value,
+        help="任务审查模式，默认 strict",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="关闭实时过程展示，但不关闭人工审批提示",
+    )
     parser.add_argument("request", nargs="+", help="要执行的一次任务描述")
     return parser
 
@@ -30,7 +55,12 @@ def main(argv: list[str] | None = None) -> int:
     runtime = None
     try:
         settings = Settings.from_env()
-        runtime = build_runtime(settings)
+        event_sink = NullEventSink() if args.no_progress else ConsoleEventSink()
+        runtime = build_runtime(
+            settings,
+            review_mode=ReviewMode(args.review_mode),
+            event_sink=event_sink,
+        )
         result = asyncio.run(runtime.agent.run(request_text, task_id=task_id))
     except KeyboardInterrupt:
         if runtime is not None:
@@ -42,22 +72,28 @@ def main(argv: list[str] | None = None) -> int:
                     error_message="任务已取消：用户按下 Ctrl+C",
                 )
             except KeyError as exc:
-                print(f"取消状态记录失败：任务 {task_id} 不存在：{exc}", file=sys.stderr)
-        print("任务已取消：用户按下 Ctrl+C", file=sys.stderr)
+                print(
+                    redact_text(f"取消状态记录失败：任务 {task_id} 不存在：{exc}"),
+                    file=sys.stderr,
+                )
+        print(redact_text("任务已取消：用户按下 Ctrl+C"), file=sys.stderr)
         return 130
     except (ConfigError, ModelBackendError) as exc:
-        print(f"启动失败：{exc}", file=sys.stderr)
+        print(
+            redact_text(f"启动失败：{type(exc).__name__}: {exc}"),
+            file=sys.stderr,
+        )
         return 2
     # CLI 边界统一兜住未预期异常，输出异常类型和启动阶段作为具体报错点。
     except Exception as exc:  # noqa: BLE001
-        print(f"任务启动失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+        print(redact_text(f"任务启动失败：{type(exc).__name__}: {exc}"), file=sys.stderr)
         return 1
 
-    print(f"任务 {result.task_id} 状态：{result.status.value}")
+    print(f"任务 {result.task_id} 状态：{result.status.value}，模型轮数：{result.turns}")
     if result.content:
-        print(result.content)
+        print(redact_text(result.content))
     if result.error_message:
-        print(result.error_message, file=sys.stderr)
+        print(redact_text(result.error_message), file=sys.stderr)
     return 0 if result.status.value == "success" else 1
 
 

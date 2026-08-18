@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 
 from ..errors import CommandDeniedError, NexusError, ValidationError
 from .paths import WorkspaceAccessPolicy, WorkspacePathResolver
+from .review_mode import ReviewMode, parse_review_mode
 
 # 作用：阻断会让原始字符串重新进入 Shell 解释器的语法；Bash 工具随后只执行 argv。
 _META = (
@@ -58,12 +59,25 @@ class CommandDecision:
 class CommandPolicy:
     """严格模式命令策略，不负责启动进程。"""
 
-    def __init__(self, resolver: WorkspacePathResolver | None = None) -> None:
+    def __init__(
+        self,
+        resolver: WorkspacePathResolver | None = None,
+        review_mode: ReviewMode = ReviewMode.STRICT,
+    ) -> None:
         self.resolver = resolver
+        self.review_mode = parse_review_mode(review_mode)
 
     def evaluate(self, command: object) -> CommandDecision:
         if not isinstance(command, str) or not command.strip():
             return CommandDecision(False, "", "命令校验失败：command 必须是非空字符串")
+        if "\x00" in command:
+            return CommandDecision(False, "", "命令校验失败：command 包含 NUL 字符")
+        if self.review_mode is not ReviewMode.STRICT:
+            return CommandDecision(
+                True,
+                "shell",
+                "原始 Shell 脚本通过输入校验，执行前需要人工审批或任务级确认",
+            )
         if any(marker in command for marker in _META):
             return CommandDecision(False, "", "命令被拒绝：不允许 Shell 组合、管道、重定向或多行语法")
         try:

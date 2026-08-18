@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="1080" viewBox="0 0 1450 1080">
+  <defs>
+    <style>
+      .title { font: 700 28px "Microsoft YaHei", sans-serif; fill: #172B4D; }
+      .subtitle { font: 15px "Microsoft YaHei", sans-serif; fill: #5E6C84; }
+      .label { font: 16px "Microsoft YaHei", sans-serif; fill: #172B4D; text-anchor: middle; dominant-baseline: middle; }
+      .small { font: 14px "Microsoft YaHei", sans-serif; fill: #42526E; text-anchor: middle; dominant-baseline: middle; }
+      .legend { font: 14px "Microsoft YaHei", sans-serif; fill: #42526E; dominant-baseline: middle; }
+      .link { stroke: #98A2B3; stroke-width: 2; fill: none; }
+      .actor { stroke: #344054; stroke-width: 3; fill: none; stroke-linecap: round; }
+      .domain { fill: #FFFFFF; stroke: #344054; stroke-width: 2.5; rx: 12; }
+      .existing { fill: #F2F4F7; stroke: #667085; stroke-width: 2.2; }
+      .new { fill: #EAF2FF; stroke: #3B82F6; stroke-width: 2.2; }
+      .modified { fill: #FFF1E8; stroke: #F97316; stroke-width: 2.2; }
+    </style>
+  </defs>
+
+  <rect width="1450" height="1080" fill="#FCFCFD"/>
+  <text x="725" y="50" class="title" text-anchor="middle">立凯中枢：当前架构能力与优化用例</text>
+  <text x="725" y="82" class="subtitle" text-anchor="middle">灰色为当前能力，蓝色为待新增边界，橙色为建议收敛的现有职责</text>
+
+  <!-- 本地用户 -->
+  <circle cx="100" cy="198" r="25" class="actor"/>
+  <line x1="100" y1="223" x2="100" y2="293" class="actor"/>
+  <line x1="66" y1="247" x2="134" y2="247" class="actor"/>
+  <line x1="100" y1="293" x2="72" y2="337" class="actor"/>
+  <line x1="100" y1="293" x2="128" y2="337" class="actor"/>
+  <text x="100" y="370" class="label">本地用户</text>
+
+  <rect x="200" y="208" width="190" height="86" class="domain"/>
+  <text x="295" y="238" class="label">本地任务域</text>
+  <text x="295" y="265" class="small">CLI 与安全执行</text>
+
+  <line x1="134" y1="247" x2="200" y2="251" class="link"/>
+  <line x1="390" y1="251" x2="460" y2="130" class="link"/>
+  <line x1="390" y1="251" x2="460" y2="210" class="link"/>
+  <line x1="390" y1="251" x2="460" y2="290" class="link"/>
+  <line x1="390" y1="251" x2="460" y2="370" class="link"/>
+
+  <ellipse cx="620" cy="130" rx="160" ry="36" class="existing"/>
+  <text x="620" y="130" class="label">提交 CLI 任务</text>
+  <ellipse cx="620" cy="210" rx="160" ry="36" class="existing"/>
+  <text x="620" y="210" class="label">选择三档审查模式</text>
+  <ellipse cx="620" cy="290" rx="160" ry="36" class="existing"/>
+  <text x="620" y="290" class="label">审批高风险操作</text>
+  <ellipse cx="620" cy="370" rx="160" ry="36" class="existing"/>
+  <text x="620" y="370" class="label">查看实时运行过程</text>
+
+  <!-- 系统维护者 -->
+  <circle cx="100" cy="688" r="25" class="actor"/>
+  <line x1="100" y1="713" x2="100" y2="783" class="actor"/>
+  <line x1="66" y1="737" x2="134" y2="737" class="actor"/>
+  <line x1="100" y1="783" x2="72" y2="827" class="actor"/>
+  <line x1="100" y1="783" x2="128" y2="827" class="actor"/>
+  <text x="100" y="860" class="label">系统维护者</text>
+
+  <rect x="200" y="698" width="190" height="86" class="domain"/>
+  <text x="295" y="728" class="label">扩展维护域</text>
+  <text x="295" y="755" class="small">能力接入与演进</text>
+
+  <line x1="134" y1="737" x2="200" y2="741" class="link"/>
+  <line x1="390" y1="741" x2="460" y2="570" class="link"/>
+  <line x1="390" y1="741" x2="460" y2="650" class="link"/>
+  <line x1="390" y1="741" x2="460" y2="730" class="link"/>
+  <line x1="390" y1="741" x2="460" y2="810" class="link"/>
+  <line x1="390" y1="741" x2="460" y2="890" class="link"/>
+
+  <ellipse cx="620" cy="570" rx="160" ry="36" class="existing"/>
+  <text x="620" y="570" class="label">新增 Tool 并显式注册</text>
+  <ellipse cx="620" cy="650" rx="160" ry="36" class="existing"/>
+  <text x="620" y="650" class="label">新增 ModelBackend</text>
+  <ellipse cx="620" cy="730" rx="160" ry="36" class="new"/>
+  <text x="620" y="730" class="label">接入渠道无关任务门面</text>
+  <ellipse cx="620" cy="810" rx="160" ry="36" class="modified"/>
+  <text x="620" y="810" class="label">收敛执行与结果投影职责</text>
+  <ellipse cx="620" cy="890" rx="160" ry="36" class="modified"/>
+  <text x="620" y="890" class="label">收敛权限上下文与进程运行</text>
+
+  <!-- 图例 -->
+  <rect x="1040" y="220" width="330" height="230" rx="14" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="2"/>
+  <text x="1205" y="255" class="label">图例</text>
+  <rect x="1080" y="290" width="62" height="28" rx="14" class="existing"/>
+  <text x="1165" y="304" class="legend">当前已具备</text>
+  <rect x="1080" y="340" width="62" height="28" rx="14" class="new"/>
+  <text x="1165" y="354" class="legend">未来新增边界</text>
+  <rect x="1080" y="390" width="62" height="28" rx="14" class="modified"/>
+  <text x="1165" y="404" class="legend">建议优化现有职责</text>
+
+  <rect x="980" y="555" width="410" height="270" rx="14" fill="#FFFFFF" stroke="#D0D5DD" stroke-width="2"/>
+  <text x="1185" y="590" class="label">判断摘要</text>
+  <text x="1015" y="635" class="legend">• Tool / Model 扩展主干已经稳定</text>
+  <text x="1015" y="675" class="legend">• 模块分层清晰，执行安全顺序集中</text>
+  <text x="1015" y="715" class="legend">• ToolExecutor 与 BashTool 职责偏重</text>
+  <text x="1015" y="755" class="legend">• Channel 与长期任务边界尚未形成</text>
+  <text x="1015" y="795" class="legend">• 应按真实需求小步收敛，不推倒重构</text>
+
+  <text x="725" y="1030" class="subtitle" text-anchor="middle">本图表达能力和职责关系，不限定未来文件名、类名或目录拆分</text>
+</svg>

@@ -10,21 +10,24 @@ from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import ResolvedPath, WorkspacePathResolver
 from ...safety.redaction import action_fingerprint, content_sha256, redact_text, truncate_text
-from ..base import ToolOutput
+from ..base import Tool, ToolOutput
 from .common import atomic_write, require_arguments, require_string
 
 
-class WriteFileTool:
+class WriteFileTool(Tool):
     """完整写入工具，不保存或返回文件正文，避免扩大敏感内容传播范围。"""
 
     name = "write"
     spec = ToolSpec(
         name=name,
-        description="创建或完整覆盖工作区内的 UTF-8 文本文件。",
+        description="创建或完整覆盖当前审查模式允许路径内的 UTF-8 文本文件。",
         input_schema={
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "相对工作区路径"},
+                "path": {
+                    "type": "string",
+                    "description": "当前审查模式允许的文件路径；完全访问模式也支持绝对路径和工作区外路径",
+                },
                 "content": {"type": "string", "description": "要写入的完整文本"},
             },
             "required": ["path", "content"],
@@ -34,6 +37,7 @@ class WriteFileTool:
 
     def __init__(self, resolver: WorkspacePathResolver) -> None:
         self.resolver = resolver
+        self.review_mode = resolver.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -46,7 +50,9 @@ class WriteFileTool:
     def check_safety(self, arguments: dict[str, Any]) -> None:
         self._resolve(arguments)
 
-    def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest:
+    def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest | None:
+        if self.resolver.review_mode.value != "strict":
+            return None
         resolved = self._resolve(arguments)
         action = "覆盖" if resolved.exists else "新建"
         content = arguments["content"]
@@ -82,11 +88,49 @@ class WriteFileTool:
             return ToolOutput("写入已取消：收到任务取消信号", is_error=True, metadata={"cancelled": True})
         resolved.path.parent.mkdir(parents=True, exist_ok=True)
         data = arguments["content"].encode("utf-8")
-        atomic_write(resolved.path, data, resolved.relative_path)
+        atomic_write(resolved.path, data, str(self._safe_path(resolved.relative_path)))
         action = "覆盖" if resolved.exists else "创建"
         return ToolOutput(
-            content=f"已{action}文件：{resolved.relative_path}",
-            metadata={"path": resolved.relative_path, "bytes": len(data), "action": action},
+            content=f"已{action}文件：{self._safe_path(resolved.relative_path)}",
+            metadata={
+                "path": self._safe_path(resolved.relative_path),
+                "bytes": len(data),
+                "action": action,
+            },
+        )
+
+    def display_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        content = values.get("content")
+        content_bytes = len(content.encode("utf-8")) if isinstance(content, str) else "?"
+        digest = content_sha256(content) if isinstance(content, str) else "?"
+        return (
+            f"write 参数摘要：路径={self._safe_path(values.get('path'))}，"
+            f"字节数={content_bytes}，内容 sha256={digest}"
+        )
+
+    def audit_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        content = values.get("content")
+        projection = {
+            "path": self._safe_path(values.get("path")),
+            "content_bytes": len(content.encode("utf-8")) if isinstance(content, str) else None,
+            "content_sha256": content_sha256(content) if isinstance(content, str) else None,
+        }
+        return f"write 参数摘要：指纹={action_fingerprint(projection)}，投影={projection}"
+
+    def model_metadata(self, output: ToolOutput) -> dict[str, Any]:
+        return {
+            key: output.metadata[key]
+            for key in ("path", "bytes", "action", "cancelled")
+            if key in output.metadata
+        }
+
+    def audit_summary(self, output: ToolOutput) -> str:
+        metadata = output.metadata
+        return (
+            f"write {'失败' if output.is_error else '成功'}：路径={self._safe_path(metadata.get('path'))}，"
+            f"动作={metadata.get('action', '[未知]')}，字节数={metadata.get('bytes', 0)}"
         )
 
     def _resolve(self, arguments: dict[str, Any]) -> ResolvedPath:
@@ -104,3 +148,9 @@ class WriteFileTool:
             return content_sha256(resolved.path.read_bytes())
         except OSError as exc:
             return f"[读取失败:{type(exc).__name__}]"
+
+    @staticmethod
+    def _safe_path(path: object) -> object:
+        if WorkspacePathResolver._is_sensitive_path(path):
+            return "[敏感路径]"
+        return path

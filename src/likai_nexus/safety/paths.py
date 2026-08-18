@@ -1,4 +1,4 @@
-"""工作区路径安全：供四个文件工具共享，解析相对路径并阻止符号链接、越界和敏感文件访问。"""
+"""工作区路径安全：供文件工具共享，解析路径并按审查模式控制越界和敏感文件访问。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..errors import PathAccessError, ToolExecutionError, ValidationError
+from .review_mode import ReviewMode, parse_review_mode
 
 _SENSITIVE_NAMES = {
     ".netrc",
@@ -30,6 +31,7 @@ class ResolvedPath:
     path: Path
     relative_path: str
     exists: bool
+    sensitive: bool = False
 
 
 class WorkspaceAccessPolicy:
@@ -70,11 +72,23 @@ class WorkspaceAccessPolicy:
 class WorkspacePathResolver:
     """所有文件工具共享的工作区路径解析器。"""
 
-    def __init__(self, workspace_root: Path) -> None:
+    def __init__(
+        self,
+        workspace_root: Path,
+        *,
+        review_mode: ReviewMode = ReviewMode.STRICT,
+        allow_external: bool = False,
+        allow_sensitive: bool = False,
+        enforce_symlink_safety: bool = True,
+    ) -> None:
         root = Path(workspace_root).expanduser().resolve(strict=False)
         if not root.exists() or not root.is_dir():
             raise PathAccessError(f"工作区初始化失败：根目录不存在或不是目录：{root}")
         self.root = root
+        self.review_mode = parse_review_mode(review_mode)
+        self.allow_external = allow_external
+        self.allow_sensitive = allow_sensitive
+        self.enforce_symlink_safety = enforce_symlink_safety
 
     def resolve(
         self,
@@ -97,19 +111,25 @@ class WorkspacePathResolver:
                 f"路径校验失败：无法解析 {raw_path!r}，原因：{type(exc).__name__}"
             ) from exc
 
-        try:
-            common = os.path.commonpath((os.path.normcase(str(self.root)), os.path.normcase(str(resolved))))
-        except ValueError as exc:
-            raise PathAccessError(f"路径访问被拒绝：{raw_path!r} 与工作区不在同一文件系统") from exc
-        if common != os.path.normcase(str(self.root)):
-            raise PathAccessError(
-                f"路径访问被拒绝：{raw_path!r} 解析后位于工作区外：{resolved}"
-            )
-        if reject_symlink and self._contains_link(lexical_path):
+        if not self.allow_external:
+            try:
+                common = os.path.commonpath(
+                    (os.path.normcase(str(self.root)), os.path.normcase(str(resolved)))
+                )
+            except ValueError as exc:
+                raise PathAccessError(
+                    f"路径访问被拒绝：{raw_path!r} 与工作区不在同一文件系统"
+                ) from exc
+            if common != os.path.normcase(str(self.root)):
+                raise PathAccessError(
+                    f"路径访问被拒绝：{raw_path!r} 解析后位于工作区外：{resolved}"
+                )
+        if reject_symlink and self.enforce_symlink_safety and self._contains_link(lexical_path):
             raise PathAccessError(f"路径访问被拒绝：不允许通过符号链接或目录连接访问：{raw_path!r}")
         exists = resolved.exists()
         relative = self._relative(resolved)
-        if self._is_sensitive_path(relative):
+        sensitive = self._is_sensitive_path(relative)
+        if sensitive and not self.allow_sensitive:
             raise PathAccessError(
                 f"路径访问被拒绝：目标 {relative} 可能包含密钥或凭据，默认禁止工具访问"
             )
@@ -117,7 +137,7 @@ class WorkspacePathResolver:
             raise ToolExecutionError(f"文件操作失败：目标不存在：{relative}")
         if file_only and exists and not resolved.is_file():
             raise ToolExecutionError(f"文件操作失败：目标不是普通文件：{relative}")
-        return ResolvedPath(resolved, relative, exists)
+        return ResolvedPath(resolved, relative, exists, sensitive)
 
     @staticmethod
     def _is_sensitive_path(path: object) -> bool:
@@ -150,6 +170,8 @@ class WorkspacePathResolver:
     def _relative(self, path: Path) -> str:
         try:
             relative = path.relative_to(self.root).as_posix()
-        except ValueError as exc:
-            raise PathAccessError(f"路径访问被拒绝：无法生成工作区相对路径：{path}") from exc
+        except ValueError:
+            if not self.allow_external:
+                raise PathAccessError(f"路径访问被拒绝：无法生成工作区相对路径：{path}")
+            return path.as_posix()
         return relative or "."

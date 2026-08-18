@@ -118,6 +118,54 @@ def test_model_tool_message_budget_preserves_safe_status() -> None:
     assert "truncated" in message
 
 
+def test_bash_output_redacts_incomplete_private_key_block() -> None:
+    for stdout, stderr in (
+        (b"-----BEGIN PRIVATE KEY-----\nPARTIAL_PRIVATE_SECRET", b""),
+        (b"", b"-----BEGIN PRIVATE KEY-----\nPARTIAL_PRIVATE_SECRET"),
+    ):
+        output = BashTool._format_output(stdout, stderr)
+
+        assert "PARTIAL_PRIVATE_SECRET" not in output
+        assert "[已脱敏：私钥内容]" in output
+
+
+def test_model_content_redacts_tool_output_before_budget_truncation() -> None:
+    message = ToolExecutor._model_content(
+        "OPENAI_API_KEY=MODEL_SECRET",
+        {"truncated": False},
+        132,
+    )
+
+    assert "MODEL_SECRET" not in message
+
+
+def test_model_content_redacts_custom_metadata_as_a_defense_in_depth() -> None:
+    message = ToolExecutor._model_content(
+        "完成",
+        {
+            "api_token": "EXTENSION_METADATA_SECRET",
+            "custom_state": "token=EXTENSION_METADATA_SECRET",
+        },
+        132,
+    )
+
+    assert "EXTENSION_METADATA_SECRET" not in message
+    assert "[已脱敏]" in message
+
+
+def test_model_content_redacts_unlabelled_credential_shaped_metadata() -> None:
+    secret = "sk-proj-AbC123xYz789Qwe"
+
+    message = ToolExecutor._model_content(
+        "完成",
+        {"custom_state": secret},
+        132,
+    )
+
+    assert secret not in message
+    assert "[已脱敏：凭据]" in message
+
+
 @pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_runs_pwd_with_approval(settings) -> None:
     from likai_nexus.safety.command_policy import CommandPolicy

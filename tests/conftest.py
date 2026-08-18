@@ -9,8 +9,10 @@ import pytest
 from likai_nexus.config import Settings
 from likai_nexus.executor.registry import ToolRegistry
 from likai_nexus.executor.service import ToolExecutor
+from likai_nexus.executor.tools import build_builtin_tools
 from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.safety.approval import StaticApprovalHandler
+from likai_nexus.safety.review_mode import ReviewMode
 from likai_nexus.storage.audit_repository import AuditRepository
 from likai_nexus.storage.database import Database
 from likai_nexus.storage.task_repository import TaskRepository
@@ -44,5 +46,10 @@ def runtime(settings: Settings):
     tasks = TaskRepository(database)
     audit = AuditRepository(database)
     approvals = StaticApprovalHandler(True)
-    executor = ToolExecutor(ToolRegistry.create(settings), approvals, audit)
+    mode = ReviewMode.STRICT
+    executor = ToolExecutor(
+        ToolRegistry(build_builtin_tools(settings, mode), settings.max_output_bytes, mode),
+        approvals,
+        audit,
+    )
     return settings, database, tasks, audit, approvals, executor

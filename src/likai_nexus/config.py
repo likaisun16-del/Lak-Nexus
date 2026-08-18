@@ -24,7 +24,7 @@ def _positive_int(value: str, name: str) -> int:
     try:
         result = int(value)
     except ValueError as exc:
-        raise ConfigError(f"配置错误：{name} 必须是正整数，实际值为 {value!r}") from exc
+        raise ConfigError(f"配置错误：{name} 必须是正整数，请检查配置值格式") from exc
     if result <= 0:
         raise ConfigError(f"配置错误：{name} 必须大于 0，实际值为 {result}")
     return result

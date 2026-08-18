@@ -18,6 +18,20 @@ def test_config_requires_workspace_root() -> None:
         Settings.from_env({})
 
 
+def test_invalid_numeric_config_does_not_echo_untrusted_value(tmp_path: Path) -> None:
+    secret = "sk-proj-AbC123xYz789Qwe"
+
+    with pytest.raises(ConfigError, match="MAX_OUTPUT_BYTES 必须是正整数") as exc_info:
+        Settings.from_env(
+            {
+                "WORKSPACE_ROOT": str(tmp_path),
+                "MAX_OUTPUT_BYTES": secret,
+            }
+        )
+
+    assert secret not in str(exc_info.value)
+
+
 def test_config_loads_dotenv_and_process_environment_overrides(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

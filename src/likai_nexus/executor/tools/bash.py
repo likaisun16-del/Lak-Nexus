@@ -1,4 +1,4 @@
-"""bash 工具：由 ToolExecutor 调用，在固定工作区执行经 CommandPolicy 和审批确认的命令。"""
+"""bash 工具：由 ToolExecutor 调用，按审查模式执行经策略或确认的 Shell 命令。"""
 
 from __future__ import annotations
 
@@ -23,17 +23,18 @@ from ...safety.redaction import (
     redact_text,
     truncate_text,
 )
-from ..base import ToolOutput
+from ...safety.review_mode import ReviewMode
+from ..base import Tool, ToolOutput
 from .common import require_arguments, require_string
 
 
-class BashTool:
+class BashTool(Tool):
     """受控 Bash 工具，命令策略在进程启动前执行，输出和环境变量均做安全处理。"""
 
     name = "bash"
     spec = ToolSpec(
         name=name,
-        description="在工作区内执行通过严格命令策略的 Git Bash 命令。",
+        description="按当前审查模式在 Git Bash 中执行受控命令或原始 Shell 脚本。",
         input_schema={
             "type": "object",
             "properties": {
@@ -52,6 +53,7 @@ class BashTool:
     def __init__(self, settings: Settings, policy: CommandPolicy) -> None:
         self.settings = settings
         self.policy = policy
+        self.review_mode = policy.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -68,20 +70,25 @@ class BashTool:
     def check_safety(self, arguments: dict[str, Any]) -> None:
         arguments["argv"] = self.policy.check(arguments["command"]).argv
 
-    def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest:
-        argv = self._normalized_argv(arguments)
-        fingerprint = action_fingerprint(
-            {"argv": argv, "timeout_seconds": arguments["timeout_seconds"]}
-        )
+    def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest | None:
+        if self.policy.review_mode is ReviewMode.FULL_ACCESS:
+            return None
+        fingerprint_input = {
+            "command_sha256": content_sha256(arguments["command"]),
+            "timeout_seconds": arguments["timeout_seconds"],
+            "mode": self.policy.review_mode.value,
+        }
+        fingerprint = action_fingerprint(fingerprint_input)
         return ApprovalRequest(
             action_type="bash",
             summary=(
                 f"在工作区 {self.settings.workspace_root} 执行命令："
-                f"{redact_text(arguments['command'])}（超时 {arguments['timeout_seconds']} 秒）"
+                f"{redact_text(arguments['command'])}（模式 {self.policy.review_mode.value}，"
+                f"超时 {arguments['timeout_seconds']} 秒）"
             ),
             fingerprint=fingerprint,
             audit_summary=(
-                f"bash 动作：可执行文件={argv[0]}，参数数量={len(argv) - 1}，"
+                f"bash 动作：模式={self.policy.review_mode.value}，"
                 f"超时={arguments['timeout_seconds']} 秒，"
                 f"command sha256={content_sha256(arguments['command'])}，"
                 f"审批指纹={fingerprint}"
@@ -91,16 +98,25 @@ class BashTool:
     async def execute(
         self, arguments: dict[str, Any], cancel_event: asyncio.Event | None = None
     ) -> ToolOutput:
-        argv = self._normalized_argv(arguments)
+        strict_mode = self.policy.review_mode is ReviewMode.STRICT
+        if strict_mode:
+            argv = self._normalized_argv(arguments)
+        else:
+            self.policy.check(arguments["command"])
+            argv = ()
         bash_path = self._find_bash()
-        command_path = self._find_command(argv[0])
         environment = self._safe_environment()
         environment["CI"] = "1"
         environment["GIT_TERMINAL_PROMPT"] = "0"
-        if command_path:
-            environment["PATH"] = os.path.dirname(command_path)
-        # 作用：只把已通过策略的 argv 重新安全引用后交给 Bash，避免原始命令再次被解释。
-        safe_script = shlex.join(("exec", *argv))
+        if strict_mode:
+            command_path = self._find_command(argv[0])
+            if command_path:
+                environment["PATH"] = os.path.dirname(command_path)
+            # 作用：严格模式只把策略后的 argv 交给 Bash，避免原始命令再次被解释。
+            safe_script = shlex.join(("exec", *argv))
+        else:
+            # 宽松/完全访问模式明确保留原始脚本语义，审批或任务级确认是唯一权限门槛。
+            safe_script = arguments["command"]
         try:
             process = await asyncio.create_subprocess_exec(
                 str(bash_path),
@@ -167,6 +183,41 @@ class BashTool:
             truncated,
         )
         return ToolOutput(message, metadata=metadata)
+
+    def display_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        command = values.get("command")
+        digest = content_sha256(command) if isinstance(command, str) else "?"
+        return (
+            f"bash 参数摘要：模式={self.policy.review_mode.value}，"
+            f"command sha256={digest}，超时={values.get('timeout_seconds', '?')} 秒"
+        )
+
+    def audit_arguments(self, arguments: object) -> str:
+        values = arguments if isinstance(arguments, dict) else {}
+        projection = {
+            "mode": self.policy.review_mode.value,
+            "command_sha256": content_sha256(values["command"])
+            if isinstance(values.get("command"), str)
+            else None,
+            "timeout_seconds": values.get("timeout_seconds"),
+        }
+        return f"bash 参数摘要：指纹={action_fingerprint(projection)}，投影={projection}"
+
+    def model_metadata(self, output: ToolOutput) -> dict[str, Any]:
+        return {
+            key: output.metadata[key]
+            for key in ("exit_code", "truncated", "timed_out", "cancelled")
+            if key in output.metadata
+        }
+
+    def audit_summary(self, output: ToolOutput) -> str:
+        metadata = output.metadata
+        return (
+            f"bash {'失败' if output.is_error else '成功'}：模式={self.policy.review_mode.value}，"
+            f"退出码={metadata.get('exit_code')}，超时={metadata.get('timed_out', False)}，"
+            f"取消={metadata.get('cancelled', False)}，输出截断={metadata.get('truncated', False)}"
+        )
 
     def _find_bash(self):
         bash_path = self.settings.bash_path
@@ -325,6 +376,15 @@ class BashTool:
             if not communication.done():
                 communication.cancel()
                 await asyncio.gather(communication, return_exceptions=True)
+            self._close_process_transport(process)
+
+    @staticmethod
+    def _close_process_transport(process) -> None:
+        """在 Windows Proactor 事件循环关闭前释放已结束进程的管道传输。"""
+
+        transport = getattr(process, "_transport", None)
+        if transport is not None:
+            transport.close()
 
     async def _collect_process(self, process):
         """并行排空 stdout/stderr，且只保留配置上限内的字节。"""
