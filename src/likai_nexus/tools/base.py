@@ -6,10 +6,11 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..orchestrator.schemas import ToolSpec
 from ..safety.approval import ApprovalRequest
 from ..safety.redaction import safe_audit_identifier
 from ..safety.review_mode import ReviewMode
+from .context import ToolExecutionContext
+from .contracts import ToolDisplayProjection, ToolSpec, ToolStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +21,18 @@ class ToolOutput:
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
     display_metadata: dict[str, Any] = field(default_factory=dict)
+    status: ToolStatus | None = None
+
+    def effective_status(self) -> ToolStatus:
+        """返回工具显式声明或由兼容字段推导出的执行终态。"""
+
+        if self.status is not None:
+            return self.status
+        if self.metadata.get("cancelled"):
+            return ToolStatus.CANCELLED
+        if self.metadata.get("timed_out"):
+            return ToolStatus.TIMEOUT
+        return ToolStatus.FAILED if self.is_error else ToolStatus.SUCCESS
 
 
 def safe_argument_summary(tool_name: str, arguments: object) -> str:
@@ -39,6 +52,7 @@ class Tool:
 
     name: str
     spec: ToolSpec
+    context: ToolExecutionContext | None = None
     review_mode: ReviewMode | None = None
 
     def validate(self, arguments: object) -> dict[str, Any]:
@@ -68,10 +82,10 @@ class Tool:
 
         return safe_argument_summary(self.name, arguments)
 
-    def display_result(self, output: ToolOutput | None) -> dict[str, Any]:
+    def display_result(self, output: ToolOutput | None) -> ToolDisplayProjection:
         """返回界面结果投影；默认不暴露工具结果正文或内部 metadata。"""
 
-        return {}
+        return ToolDisplayProjection()
 
     def audit_arguments(self, arguments: object) -> str:
         """返回持久化参数摘要；默认只保存字段名和类型。"""
@@ -91,9 +105,9 @@ class Tool:
     def audit_summary(self, output: ToolOutput) -> str:
         """返回结果审计摘要；默认不保存结果正文或 metadata 值。"""
 
-        state = "失败" if output.is_error else "成功"
+        status = output.effective_status()
         fields = sorted(safe_audit_identifier(key, "field") for key in output.metadata)
-        return f"{self.name} {state}：未声明结果摘要，metadata字段摘要={fields}"
+        return f"{self.name} {status.label}：未声明结果摘要，metadata字段摘要={fields}"
 
     def validate_runtime(self) -> None:
         """执行工具专属的启动检查；默认工具无需额外检查。"""

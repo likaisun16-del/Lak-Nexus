@@ -202,6 +202,12 @@ class Settings:
         return self.project_root / "data"
 
     @property
+    def use_default_database(self) -> bool:
+        """表示是否应执行默认数据库的旧路径迁移。"""
+
+        return self._use_default_database
+
+    @property
     def preference_path(self) -> Path:
         """本地审查模式偏好文件路径。"""
 
@@ -212,18 +218,6 @@ class Settings:
         """工作区内供模型保存脚本的默认目录。"""
 
         return self.workspace_root / "script"
-
-    def prepare_runtime(self) -> tuple[str, ...]:
-        """创建应用目录、默认脚本目录并执行安全的旧数据库迁移。"""
-
-        from .storage.app_data import AppDataManager
-
-        return AppDataManager(
-            self.project_root,
-            self.workspace_root,
-            self.database_path,
-            self._use_default_database,
-        ).prepare()
 
     @staticmethod
     def _is_within(path: Path, root: Path) -> bool:

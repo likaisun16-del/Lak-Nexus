@@ -8,12 +8,13 @@ from pathlib import Path
 
 import pytest
 
+from likai_nexus.config import Settings
 from likai_nexus.errors import AuditError
-from likai_nexus.executor.tools.bash import BashTool
-from likai_nexus.executor.tools.edit_file import EditFileTool
-from likai_nexus.executor.tools.read_file import ReadFileTool
-from likai_nexus.orchestrator.schemas import ToolCall
-from likai_nexus.safety.paths import WorkspacePathResolver
+from likai_nexus.tools.builtin.bash import BashTool
+from likai_nexus.tools.builtin.edit_file import EditFileTool
+from likai_nexus.tools.builtin.read_file import ReadFileTool
+from likai_nexus.tools.context import ToolExecutionContext
+from likai_nexus.tools.contracts import ToolCall
 
 
 def run(coro):
@@ -22,11 +23,22 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def tool_context(tmp_path: Path) -> ToolExecutionContext:
+    """为直接测试工具构造与运行时一致的共享上下文。"""
+
+    settings = Settings(
+        workspace_root=tmp_path,
+        project_root=tmp_path.parent,
+        database_path=tmp_path.parent / "test-tools.db",
+    )
+    return ToolExecutionContext.from_settings(settings, "strict")
+
+
 def test_read_supports_offset_and_truncation(tmp_path: Path) -> None:
     path = tmp_path / "notes.txt"
     # 使用字节写入固定 LF，避免 Windows 文本模式换行转换干扰偏移量断言。
     path.write_bytes(b"one\ntwo\nthree\n")
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=2, max_bytes=100)
+    tool = ReadFileTool(tool_context(tmp_path), max_lines=2, max_bytes=100)
     output = run(tool.execute(tool.validate({"path": "notes.txt", "limit": 2})))
     assert output.content.startswith("one\ntwo\n")
     assert output.metadata["truncated"] is True
@@ -41,7 +53,7 @@ def test_read_supports_offset_and_truncation(tmp_path: Path) -> None:
 def test_read_long_line_advances_byte_cursor(tmp_path: Path) -> None:
     path = tmp_path / "long.txt"
     path.write_bytes(b"abcdefghij\n")
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=5)
+    tool = ReadFileTool(tool_context(tmp_path), max_lines=20, max_bytes=5)
 
     first = run(tool.execute(tool.validate({"path": "long.txt"})))
     second = run(
@@ -78,7 +90,7 @@ def test_read_long_line_advances_byte_cursor(tmp_path: Path) -> None:
 
 def test_read_multibyte_cursor_is_valid_utf8(tmp_path: Path) -> None:
     (tmp_path / "中文.txt").write_text("你好世界\n", encoding="utf-8")
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=4)
+    tool = ReadFileTool(tool_context(tmp_path), max_lines=20, max_bytes=4)
 
     output = run(tool.execute(tool.validate({"path": "中文.txt"})))
 
@@ -90,7 +102,7 @@ def test_read_multibyte_cursor_is_valid_utf8(tmp_path: Path) -> None:
 
 def test_read_minimum_budget_cursor_progresses_to_next_line(tmp_path: Path) -> None:
     (tmp_path / "mixed.txt").write_bytes("a\n中\n".encode())
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=4)
+    tool = ReadFileTool(tool_context(tmp_path), max_lines=20, max_bytes=4)
 
     first = run(tool.execute(tool.validate({"path": "mixed.txt"})))
     second = run(
@@ -112,12 +124,12 @@ def test_read_minimum_budget_cursor_progresses_to_next_line(tmp_path: Path) -> N
 
 def test_read_rejects_budget_that_cannot_advance_utf8_cursor(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="至少为 4"):
-        ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=1)
+        ReadFileTool(tool_context(tmp_path), max_lines=20, max_bytes=1)
 
 
 def test_read_rejects_mid_codepoint_cursor(tmp_path: Path) -> None:
     (tmp_path / "中文.txt").write_text("你好", encoding="utf-8")
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=4)
+    tool = ReadFileTool(tool_context(tmp_path), max_lines=20, max_bytes=4)
 
     with pytest.raises(Exception, match="UTF-8 字符边界"):
         run(
@@ -129,7 +141,7 @@ def test_read_rejects_mid_codepoint_cursor(tmp_path: Path) -> None:
 
 def test_read_rejects_binary_and_directory(tmp_path: Path) -> None:
     (tmp_path / "binary.bin").write_bytes(b"\xff\xfe")
-    tool = ReadFileTool(WorkspacePathResolver(tmp_path), max_lines=20, max_bytes=256)
+    tool = ReadFileTool(tool_context(tmp_path), max_lines=20, max_bytes=256)
     with pytest.raises(Exception, match="不是有效 UTF-8"):
         run(tool.execute(tool.validate({"path": "binary.bin"})))
     with pytest.raises(Exception, match="不是普通文件"):
@@ -211,7 +223,7 @@ def test_write_rejects_approval_when_target_changes(runtime) -> None:
 def test_edit_requires_unique_match(tmp_path: Path) -> None:
     path = tmp_path / "repeat.txt"
     path.write_text("same\nsame\n", encoding="utf-8")
-    tool = EditFileTool(WorkspacePathResolver(tmp_path))
+    tool = EditFileTool(tool_context(tmp_path))
     arguments = tool.validate({"path": "repeat.txt", "old_text": "same", "new_text": "new"})
     with pytest.raises(Exception, match="匹配不唯一"):
         run(tool.execute(arguments))
@@ -221,7 +233,7 @@ def test_edit_requires_unique_match(tmp_path: Path) -> None:
 def test_edit_reports_missing_match_without_writing(tmp_path: Path) -> None:
     path = tmp_path / "missing-match.txt"
     path.write_text("original", encoding="utf-8")
-    tool = EditFileTool(WorkspacePathResolver(tmp_path))
+    tool = EditFileTool(tool_context(tmp_path))
     arguments = tool.validate({"path": path.name, "old_text": "absent", "new_text": "new"})
     with pytest.raises(Exception, match="未找到匹配文本"):
         run(tool.execute(arguments))
@@ -400,7 +412,7 @@ def test_approval_audit_failure_finishes_tool_as_failed(runtime) -> None:
 def test_edit_preserves_bom_and_crlf(tmp_path: Path) -> None:
     path = tmp_path / "bom.txt"
     path.write_bytes(b"\xef\xbb\xbfold\r\nline\r\n")
-    tool = EditFileTool(WorkspacePathResolver(tmp_path))
+    tool = EditFileTool(tool_context(tmp_path))
     arguments = tool.validate({"path": "bom.txt", "old_text": "old\n", "new_text": "new\n"})
     output = run(tool.execute(arguments))
     assert not output.is_error

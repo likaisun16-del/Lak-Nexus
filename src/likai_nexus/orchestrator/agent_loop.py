@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from ..errors import ConfigError, TaskAlreadyExistsError
+from ..events import EventSink, RuntimeEvent, emit_safely
 from ..executor.service import ToolExecutor
 from ..models.base import ModelBackend
 from ..safety.approval import ApprovalHandler, ApprovalRequest
@@ -18,7 +19,6 @@ from ..safety.redaction import (
     sanitize_terminal_value,
 )
 from ..safety.review_mode import ReviewMode, parse_review_mode
-from .events import EventSink, RuntimeEvent, emit_safely
 from .schemas import (
     AgentResult,
     ChatMessage,

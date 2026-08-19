@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+
+from ..tools.contracts import ToolCall
 
 
 class TaskStatus(StrEnum):
@@ -26,34 +27,6 @@ class ChatMessage:
     tool_call_id: str | None = None
     name: str | None = None
     tool_calls: tuple[ToolCall, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class ToolSpec:
-    """提供给模型的工具名称、描述和 JSON Schema。"""
-
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class ToolCall:
-    """模型请求的一次结构化工具调用。"""
-
-    id: str
-    name: str
-    arguments: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class ToolResult:
-    """工具返回给模型的结果，错误也必须通过该结构回填。"""
-
-    tool_call_id: str
-    content: str
-    is_error: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

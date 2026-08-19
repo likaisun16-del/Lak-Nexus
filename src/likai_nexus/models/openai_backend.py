@@ -12,7 +12,8 @@ from typing import Any
 
 from ..config import Settings
 from ..errors import ModelBackendError
-from ..orchestrator.schemas import AssistantTurn, ChatMessage, ToolCall, ToolSpec
+from ..orchestrator.schemas import AssistantTurn, ChatMessage
+from ..tools.contracts import ToolCall, ToolSpec
 
 
 class OpenAICompatibleBackend:

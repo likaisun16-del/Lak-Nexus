@@ -42,6 +42,15 @@ class ToolRegistry:
                 and parse_review_mode(tool.review_mode) is not self.review_mode
             }
         )
+        context_mismatches = sorted(
+            {
+                f"{tool.name!r}={tool.context.review_mode.value!r}"
+                for tool in tool_list
+                if getattr(tool, "context", None) is not None
+                and tool.context.review_mode is not self.review_mode
+            }
+        )
+        mode_mismatches.extend(context_mismatches)
         if mode_mismatches:
             raise ConfigError(
                 "工具注册失败：工具审查模式与 Registry 不一致："

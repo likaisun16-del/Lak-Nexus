@@ -1,86 +1,94 @@
-# 模型轮次、Bash 指令与执行结果可见性 Review-6 复审报告
+# 架构优化已确认方案第二轮复审报告
 
 ## 审查信息
 
 - 审查状态：COMPLETED
 - 审查人：Codex Reviewer
-- 审查时间：2026-08-18
-- 对应计划：`docs/Planner/BASH_COMMAND_RESULT_VISIBILITY_PLAN.md`
-- 审查基线：`87c1f8c`（`main`）加当前未提交、未跟踪实现
-- 实现交接：`docs/Implement/IMPLEMENTATION_NOTES.md` 中“Review-6 一个 P1 修复记录”
-- 用例附件：[`REVIEW_BASH_COMMAND_RESULT_VISIBILITY_USE_CASE.svg`](./REVIEW_BASH_COMMAND_RESULT_VISIBILITY_USE_CASE.svg) / [`REVIEW_BASH_COMMAND_RESULT_VISIBILITY_USE_CASE.png`](./REVIEW_BASH_COMMAND_RESULT_VISIBILITY_USE_CASE.png)
-- 审查口径：当前是单用户、本地 CLI、以学习为目的的 MVP；不以第三方恶意 Tool 的无限对抗或完整 UI 组合矩阵阻塞主线，接入远程渠道前再集中加固
-- Reviewer 边界：只更新 `docs/Review/` 内报告和图示，没有修改业务代码、测试、配置、计划、实现交接或 `AGENTS.md`
+- 审查时间：2026-08-19
+- 对应文档：`docs/Planner/ARCHITECTURE_OPTIMIZATION_DISCUSSION.md`
+- 审查基线：`3bbad75`（`main`）加当前未提交、未跟踪实现及 Fixer 修复
+- 上一轮归档：[`REVIEW_ARCHITECTURE_OPTIMIZATION_ROUND_1.md`](./REVIEW_ARCHITECTURE_OPTIMIZATION_ROUND_1.md)
+- 实现交接：`docs/Implement/IMPLEMENTATION_NOTES.md` 中“架构优化讨论方案执行记录”及本轮 P1 修复记录
+- 用例附件：[`REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.svg`](./REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.svg) / [`REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.png`](./REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.png)
+- Reviewer 边界：只更新 `docs/Review/` 内报告、归档和图示，没有修改业务代码、测试、配置、计划、实现交接或 `AGENTS.md`
+
+## 审查口径
+
+本轮继续只核对讨论文档中的两组“已确认”方案和上一轮两个 P1；条件触发候选 E/F/G 不属于当前实施范围。
 
 ## 审查结论
 
 - [x] PASS
 - [ ] CHANGES_REQUIRED
 
-Review-6 已修复最后一个阻断问题：长审批摘要现在会在 4096 字节预算内明确显示“审批摘要已截断”，`--no-progress` 下也能直接看到该提示；原始命令、审批指纹、确认 token 比较和实际执行参数均保持不变。
+上一轮两个 P1 均已关闭。最新版没有发现新的 P0/P1：结构化 Tool 终态已经成为默认摘要、降级摘要、内置工具、事件和 SQLite 的统一状态来源；原 1167 行综合测试已按稳定职责拆分，原有 33 个回归测试全部保留，Tool 契约矩阵补齐了取消、异常和跨投影终态一致性。
 
-模型轮次、Bash 实际指令、终态、退出码、耗时、stdout/stderr、无输出、超时/取消、独立展示预算、控制字符清理、凭据脱敏、展示故障隔离、SQLite 摘要隔离及 `--no-progress` 主体链路均已实现。按当前学习型 MVP 口径，没有 P0/P1 阻断问题。
+## 上一轮 P1 复核
 
-## 本轮复核结果
+### P1-1：结构化终态与审计摘要状态不一致 —— 已关闭
 
-### 上一轮 P1：长审批摘要静默截断 —— 已关闭
+代码证据：
 
-位置：`src/likai_nexus/safety/approval.py:33-65`
+- `ToolStatus` 提供统一稳定标签（`src/likai_nexus/tools/contracts.py:28-53`）。
+- Tool 默认审计摘要只读取 `effective_status()`（`src/likai_nexus/tools/base.py:105-110`）。
+- 审计摘要生成失败的降级分支同样读取 `effective_status()`（`src/likai_nexus/executor/projection.py:130-138`）。
+- Bash、read、write、edit 的覆盖摘要均改用相同状态来源。
+- 契约测试断言 TIMEOUT/CANCELLED 在 ToolResult、RuntimeEvent、审计投影和 SQLite 中一致（`tests/unit/test_tool_contract.py:128-179`）。
 
-`_safe_prompt_field()` 现在保留 `truncate_text()` 的截断状态，并为审批摘要预留固定标记预算。发生截断时返回“有限正文 + 审批摘要已截断”，不会再次越过 4096 字节字段上限。
-
-Reviewer 使用 relaxed 模式的虚构长 Bash 命令独立复现，只构造审批请求，没有执行命令：
+Reviewer 独立复现两条路径：
 
 ```text
-APPROVED=False
-TAIL_VISIBLE=False
-TRUNCATION_VISIBLE=True
-PROMPT_BYTES=4141
-REQUEST_UNCHANGED=True
+默认摘要路径：Result=timeout，Event=timeout，SQLite=timeout，摘要包含“超时”且不包含“成功”
+摘要故障降级：Result=timeout，SQLite=timeout，降级摘要包含“超时”且不包含“成功”
 ```
 
-结果表明：用户明确知道摘要被截断，审批请求中的原始完整命令仍保持不变；展示清理没有改变审批绑定或实际执行对象。
+两条路径都使用显式 `ToolStatus.TIMEOUT` 且保留旧 `is_error` 默认值，确认权威终态不再受兼容字段干扰。
 
-### 既有 P1 回归 —— 均保持关闭
+### P1-2：测试职责拆分和 Tool 契约矩阵不完整 —— 已关闭
 
-- 调用展示直接抛错、异常字符串对象或超深结构不会阻止工具执行，成功结果和审计终态保持 `success`。
-- 结果展示的直接异常、循环、异常字符串对象和超深结构不会改变成功 ToolResult。
-- 审批提示中的 ANSI、CR/LF/CRLF、伪造过程前缀和凭据在进入 `input()` 前已安全处理。
-- 模型失败原因已折叠为有限单行，不能伪造新的 `[工具]`、`[模型]` 或 `[任务]` 顶层过程行。
+结构复核：
+
+| 文件 | 当前规模 | 职责 |
+|---|---:|---|
+| `test_executor_and_projections.py` | 570 行，22 个测试定义 | Registry、Executor、审计安全、事件和投影 |
+| `test_review_modes_and_migrations.py` | 372 行，11 个测试定义 | strict/relaxed/full-access、Runtime 和数据库迁移 |
+| `test_support.py` | 202 行 | 两组测试共享的扩展 Tool、Sink 和组装支持 |
+| `test_tool_contract.py` | 212 行，8 个测试定义 | 名称/规格、状态、取消、异常、展示、模型与审计契约 |
+
+Reviewer 从 Git 基线提取原 `test_next_phase.py` 的 33 个测试名，与两个拆分测试文件逐项比较：数量均为 33，没有删除或改名的原有场景。契约文件新增 TIMEOUT、CANCELLED、执行异常和终态/审计一致性覆盖，全量测试数由上一轮 161 增加到 164。
 
 ## 非阻断观察
 
-### P2-1：`tool_started` 早于参数校验和安全检查
+### P2-1：调用展示仍早于参数校验和安全检查
 
-位置：`src/likai_nexus/executor/service.py:70-79`、`src/likai_nexus/executor/service.py:125-130`
+位置：`src/likai_nexus/executor/service.py:78-93`、`src/likai_nexus/executor/service.py:142-146`
 
-无效或被策略拒绝的 command 仍会先显示成“执行指令”，与计划“显示通过校验的 command”不完全一致。该问题只影响过程文案时机，不会绕过校验、审批或安全策略。当前不阻塞学习主线；以后调整执行生命周期时可移动到安全检查完成后、实际进程启动前。
+`display_arguments()` 与 `tool_started` 仍在 `validate()`、`check_safety()` 之前发生。展示路径已有异常隔离、控制字符清理、脱敏和字节限制，实际执行仍严格经过校验、安全检查和审批，因此没有形成权限绕过或敏感信息阻断项。
 
-### P2-2：真实终态到 CLI 的组合测试可继续补充
+该项沿用上一轮 P2：后续调整过程事件语义时，可移动到安全检查通过后、执行前；也可以在正式计划中明确调用展示不属于结果投影阶段。本项不阻塞当前本地 CLI 架构优化 PASS。
 
-底层 Bash 已覆盖非零退出、真实超时和取消；结构化 Event/CLI 已覆盖成功 stdout+stderr 及合成超时/无输出。stderr-only、非零退出、真实超时和真实取消尚未全部做端到端组合。当前已有正常、失败、安全和故障隔离测试，建议在接入飞书、微信等远程渠道前补齐，不阻塞本轮 PASS。
+## 已确认方案复审矩阵
 
-## 计划实现矩阵
-
-| 计划能力 | 当前实现 | 复审判断 |
+| 已确认能力 | 当前实现 | 复审判断 |
 |---|---|---|
-| 模型任务内 `N/max_turns` | 结构化轮次字段；普通完成不重复显示；失败原因有限单行 | 已实现 |
-| Bash 实际指令与 timeout | 通用 invocation 投影显示真实 command、非默认 timeout 和可见截断标记 | 已实现主体；事件时机留非阻断 P2 |
-| Bash 终态和结果预览 | 区分成功、失败、超时、取消，显示退出码、耗时、截断状态、stdout/stderr 和无输出 | 已实现主体 |
-| 调用/结果展示故障隔离 | 整条展示流水线异常时安全降级，不改变执行和审计语义 | 已实现 |
-| 终端清理与脱敏 | RuntimeEvent、CLI、模型失败原因和审批提示均已覆盖 | 已实现 |
-| 长内容用户知情 | 指令、结果和审批摘要都有有限预算与可见截断标记 | 已实现 |
-| 模型/UI/审计三投影分离 | SQLite 仅保存 hash、状态和摘要，不保存原命令或完整输出 | 已实现 |
-| `--no-progress` 与噪音过滤 | 关闭过程事件但保留安全审批；普通完成和内部安全事件不展示 | 已实现 |
+| `likai_nexus.tools` 一级扩展域 | 契约、上下文、Registry 和内置 Tool 已归位 | 通过 |
+| 单一 Tool 执行上下文 | 内置工具共享能力和限制，不再各自解释模式 | 通过 |
+| 结构化 Tool 结果 | status、model、display、audit 分离；终态来源一致 | 通过 |
+| ToolExecutor 职责拆分 | 唯一门面保留，审计和投影职责已委托 | 通过 |
+| 显式注册和无工具名分支 | Runtime 显式组装；Executor、Agent Loop、CLI 无具体 Tool 分支 | 通过 |
+| 中立事件与通用展示 | 顶层事件契约及通用字段 Renderer 已实现 | 通过 |
+| CLI 入口与渲染拆分 | `--no-progress`、审批和退出码兼容测试通过 | 通过 |
+| 配置层纯净 | Settings 不触发 Storage；Runtime/Storage 各负其责 | 通过 |
+| 测试拆分与契约集合 | 原场景无损拆分，必需契约矩阵已补齐 | 通过 |
 
 ## 验证记录
 
 ```text
-.\.venv\Scripts\python.exe -m pytest tests/integration/test_cli_agent.py::test_cli_approval_prompt_sanitizes_untrusted_fields tests/unit/test_next_phase.py::test_display_arguments_failure_cannot_prevent_successful_tool tests/unit/test_next_phase.py::test_display_projection_failure_cannot_change_successful_tool -q -rs
-结果：8 passed
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_tool_contract.py tests/unit/test_executor_and_projections.py tests/unit/test_review_modes_and_migrations.py -q -rs
+结果：46 passed（5.02s）
 
 .\.venv\Scripts\python.exe -m pytest -q -rs
-结果：156 passed，2 skipped（22.23s）
+结果：164 passed，2 skipped（20.61s）
 跳过项：当前 Windows 环境不允许创建符号链接
 
 .\.venv\Scripts\ruff.exe check .
@@ -93,16 +101,19 @@ git diff --check
 结果：通过；仅有 Windows LF/CRLF 转换提示
 
 Reviewer 独立复现
-长 Bash 审批摘要显示固定截断标记，原始审批请求保持不变，没有执行虚构命令
+默认摘要和摘要故障降级路径均保持 TIMEOUT/超时一致
+
+测试拆分对比
+原综合文件 33 个测试名与拆分后两个职责文件的 33 个测试名完全一致
 
 Reviewer 用例图
-SVG/PNG 渲染成功；--check 为 0 errors、0 warnings、0 overflow、0 overlap；人工目视检查通过
+SVG 通过 XML 解析；使用本机 Edge 以 1500×1080 渲染 PNG，人工目视确认无节点重叠、连线穿越或文字溢出
 ```
 
-独立复现使用虚构命令，没有读取项目 `.env`、真实凭据、网络或用户数据。
+独立复现只使用自动清理的临时目录、临时 SQLite 和虚构 Tool，没有读取项目 `.env`、真实凭据、网络或用户数据。
 
 ## 最终意见
 
 **PASS**
 
-当前实现已满足学习型本地 CLI 的主线目标，可以继续进入下一阶段。两个 P2 记录为接入远程渠道前的加固项，不要求现在继续围绕低收益边界反复开发。
+两个 P1 已按上一轮复审门槛实质关闭，架构优化的已确认范围已经实现，可以结束本轮 Fixer/Reviewer 循环。P2-1 作为后续过程事件语义优化项保留，不要求继续阻塞当前阶段。

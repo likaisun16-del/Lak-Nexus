@@ -1,4 +1,4 @@
-"""运行时结构化事件：连接 Agent Loop、Tool Executor 和 CLI 过程展示。"""
+"""中立运行事件契约：供 Agent Loop、Executor、CLI 和未来 Channel 共同消费。"""
 
 from __future__ import annotations
 

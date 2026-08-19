@@ -7,11 +7,12 @@ import difflib
 from typing import Any
 
 from ...errors import ToolExecutionError, ValidationError
-from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import ResolvedPath, WorkspacePathResolver
 from ...safety.redaction import action_fingerprint, content_sha256, redact_text, truncate_text
 from ..base import Tool, ToolOutput
+from ..context import ToolExecutionContext
+from ..contracts import ToolSpec
 from .common import atomic_write, require_arguments, require_string
 
 
@@ -37,10 +38,13 @@ class EditFileTool(Tool):
         },
     )
 
-    def __init__(self, resolver: WorkspacePathResolver, diff_limit_bytes: int = 64 * 1024) -> None:
-        self.resolver = resolver
+    def __init__(
+        self, context: ToolExecutionContext, diff_limit_bytes: int = 64 * 1024
+    ) -> None:
+        self.context = context
+        self.resolver = context.paths
         self.diff_limit_bytes = diff_limit_bytes
-        self.review_mode = resolver.review_mode
+        self.review_mode = context.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -57,7 +61,7 @@ class EditFileTool(Tool):
         self._resolve(arguments)
 
     def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest | None:
-        if self.resolver.review_mode.value != "strict":
+        if not self.context.file_mutation_requires_approval:
             return None
         resolved = self._resolve(arguments)
         try:
@@ -188,7 +192,7 @@ class EditFileTool(Tool):
     def audit_summary(self, output: ToolOutput) -> str:
         metadata = output.metadata
         return (
-            f"edit {'失败' if output.is_error else '成功'}：路径={self._safe_path(metadata.get('path'))}，"
+            f"edit {output.effective_status().label}：路径={self._safe_path(metadata.get('path'))}，"
             f"匹配数={metadata.get('matches', 0)}，"
             f"diff截断={metadata.get('diff_truncated', False)}"
         )

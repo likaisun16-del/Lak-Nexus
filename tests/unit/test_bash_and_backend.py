@@ -8,13 +8,14 @@ from pathlib import Path
 import pytest
 
 from likai_nexus.errors import ConfigError, ModelBackendError, ToolExecutionError
-from likai_nexus.executor.base import ToolOutput
 from likai_nexus.executor.service import ToolExecutor
-from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.models.openai_backend import OpenAICompatibleBackend
-from likai_nexus.orchestrator.schemas import ChatMessage, ToolCall
+from likai_nexus.orchestrator.schemas import ChatMessage
 from likai_nexus.runtime import build_runtime
-from likai_nexus.safety.command_policy import CommandPolicy
+from likai_nexus.tools.base import ToolOutput
+from likai_nexus.tools.builtin.bash import BashTool
+from likai_nexus.tools.context import ToolExecutionContext
+from likai_nexus.tools.contracts import ToolCall
 
 
 def run(coro):
@@ -68,13 +69,13 @@ def test_bash_rejects_wsl_path_from_windows_path(monkeypatch, settings) -> None:
         bash_path=None,
     )
     monkeypatch.setattr(
-        "likai_nexus.executor.tools.bash.shutil.which",
+        "likai_nexus.tools.builtin.bash.shutil.which",
         lambda name: r"C:\Users\test\WindowsApps\bash.exe",
     )
     monkeypatch.setattr(BashTool, "discover_bash_path", classmethod(lambda cls: None))
 
     with pytest.raises(ToolExecutionError, match="WSL"):
-        BashTool(settings, CommandPolicy())._find_bash()
+        BashTool(ToolExecutionContext.from_settings(settings, "strict"))._find_bash()
 
 
 def test_runtime_rejects_wsl_bash_before_starting_tasks(monkeypatch, settings) -> None:
@@ -84,7 +85,7 @@ def test_runtime_rejects_wsl_bash_before_starting_tasks(monkeypatch, settings) -
         bash_path=None,
     )
     monkeypatch.setattr(
-        "likai_nexus.executor.tools.bash.shutil.which",
+        "likai_nexus.tools.builtin.bash.shutil.which",
         lambda name: r"C:\Users\test\WindowsApps\bash.exe",
     )
     monkeypatch.setattr(BashTool, "discover_bash_path", classmethod(lambda cls: None))
@@ -99,7 +100,7 @@ def test_bash_truncation_marker_stays_inside_budget(settings) -> None:
         database_path=settings.database_path,
         max_output_bytes=132,
     )
-    tool = BashTool(settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(settings, "strict"))
 
     message = tool._bounded_message("Bash 执行成功：退出码 0\n", "x" * 500, True)
 
@@ -131,7 +132,7 @@ def test_bash_output_redacts_incomplete_private_key_block() -> None:
 
 
 def test_bash_display_projection_sanitizes_and_bounds_terminal_text(settings) -> None:
-    tool = BashTool(settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(settings, "strict"))
     assert ToolExecutor._DISPLAY_RESULT_BYTES == 1024
     command = ToolExecutor._display_arguments(tool, {"command": "中" * 3000})
     assert len(command.encode("utf-8")) <= ToolExecutor._DISPLAY_COMMAND_BYTES
@@ -149,12 +150,15 @@ def test_bash_display_projection_sanitizes_and_bounds_terminal_text(settings) ->
             },
         ),
     )
-    assert len(output["stdout"].encode("utf-8")) <= ToolExecutor._DISPLAY_RESULT_BYTES
-    assert "[输出预览已截断]" in output["stdout"]
-    assert "DISPLAY_SECRET" not in output["stdout"]
-    assert "\x1b" not in output["stdout"]
-    assert "\r" not in output["stdout"]
-    assert "\b" not in output["stdout"]
+    fields = {
+        field["label"]: field["value"] for field in output.as_dict()["fields"]
+    }
+    assert len(fields["stdout"].encode("utf-8")) <= ToolExecutor._DISPLAY_RESULT_BYTES
+    assert "[输出预览已截断]" in fields["stdout"]
+    assert "DISPLAY_SECRET" not in fields["stdout"]
+    assert "\x1b" not in fields["stdout"]
+    assert "\r" not in fields["stdout"]
+    assert "\b" not in fields["stdout"]
 
 
 def test_model_content_redacts_tool_output_before_budget_truncation() -> None:
@@ -196,9 +200,7 @@ def test_model_content_redacts_unlabelled_credential_shaped_metadata() -> None:
 
 @pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_runs_pwd_with_approval(settings) -> None:
-    from likai_nexus.safety.command_policy import CommandPolicy
-
-    tool = BashTool(settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(settings, "strict"))
     arguments = tool.validate({"command": "pwd"})
     tool.check_safety(arguments)
     result = run(tool.execute(arguments))
@@ -216,7 +218,7 @@ def test_bash_captures_nonzero_exit_and_truncates_output(settings) -> None:
     )
     output_file = settings.workspace_root / "output.txt"
     output_file.write_text("x\n" * 100, encoding="utf-8")
-    tool = BashTool(settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(settings, "strict"))
     success = run(tool.execute(tool.validate({"command": "rg x output.txt"})))
     assert not success.is_error
     assert success.metadata["exit_code"] == 0
@@ -233,7 +235,7 @@ def test_bash_representative_commands_succeed(settings) -> None:
         database_path=settings.database_path,
         bash_path=settings.bash_path,
     )
-    tool = BashTool(repository_settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(repository_settings, "strict"))
 
     for command in ("pwd", "git status --short", "python -m compileall src"):
         result = run(tool.execute(tool.validate({"command": command})))
@@ -243,7 +245,7 @@ def test_bash_representative_commands_succeed(settings) -> None:
 
 @pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_timeout_terminates_process(settings) -> None:
-    tool = BashTool(settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(settings, "strict"))
 
     async def scenario():
         process = await asyncio.create_subprocess_exec(
@@ -261,7 +263,7 @@ def test_bash_timeout_terminates_process(settings) -> None:
 
 @pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
 def test_bash_cancellation_terminates_running_process(settings) -> None:
-    tool = BashTool(settings, CommandPolicy())
+    tool = BashTool(ToolExecutionContext.from_settings(settings, "strict"))
 
     async def scenario():
         process = await asyncio.create_subprocess_exec(

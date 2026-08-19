@@ -10,7 +10,8 @@ import pytest
 from likai_nexus.errors import TaskAlreadyExistsError
 from likai_nexus.models.fake import FakeModelBackend
 from likai_nexus.orchestrator.agent_loop import AgentLoop
-from likai_nexus.orchestrator.schemas import AssistantTurn, TaskStatus, ToolCall
+from likai_nexus.orchestrator.schemas import AssistantTurn, TaskStatus
+from likai_nexus.tools.contracts import ToolCall
 
 
 def run(coro):

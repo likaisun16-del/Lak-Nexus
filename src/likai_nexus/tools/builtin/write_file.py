@@ -6,11 +6,12 @@ import asyncio
 from typing import Any
 
 from ...errors import ValidationError
-from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import ResolvedPath, WorkspacePathResolver
 from ...safety.redaction import action_fingerprint, content_sha256, redact_text, truncate_text
 from ..base import Tool, ToolOutput
+from ..context import ToolExecutionContext
+from ..contracts import ToolSpec
 from .common import atomic_write, require_arguments, require_string
 
 
@@ -35,9 +36,10 @@ class WriteFileTool(Tool):
         },
     )
 
-    def __init__(self, resolver: WorkspacePathResolver) -> None:
-        self.resolver = resolver
-        self.review_mode = resolver.review_mode
+    def __init__(self, context: ToolExecutionContext) -> None:
+        self.context = context
+        self.resolver = context.paths
+        self.review_mode = context.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -51,7 +53,7 @@ class WriteFileTool(Tool):
         self._resolve(arguments)
 
     def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest | None:
-        if self.resolver.review_mode.value != "strict":
+        if not self.context.file_mutation_requires_approval:
             return None
         resolved = self._resolve(arguments)
         action = "覆盖" if resolved.exists else "新建"
@@ -129,7 +131,7 @@ class WriteFileTool(Tool):
     def audit_summary(self, output: ToolOutput) -> str:
         metadata = output.metadata
         return (
-            f"write {'失败' if output.is_error else '成功'}：路径={self._safe_path(metadata.get('path'))}，"
+            f"write {output.effective_status().label}：路径={self._safe_path(metadata.get('path'))}，"
             f"动作={metadata.get('action', '[未知]')}，字节数={metadata.get('bytes', 0)}"
         )
 

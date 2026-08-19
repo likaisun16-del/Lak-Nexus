@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 
 from likai_nexus.config import Settings
-from likai_nexus.executor.registry import ToolRegistry
 from likai_nexus.executor.service import ToolExecutor
-from likai_nexus.executor.tools import build_builtin_tools
-from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.safety.approval import StaticApprovalHandler
 from likai_nexus.safety.review_mode import ReviewMode
 from likai_nexus.storage.audit_repository import AuditRepository
 from likai_nexus.storage.database import Database
 from likai_nexus.storage.task_repository import TaskRepository
+from likai_nexus.tools.builtin import build_builtin_tools
+from likai_nexus.tools.builtin.bash import BashTool
+from likai_nexus.tools.registry import ToolRegistry
 
 
 @pytest.fixture

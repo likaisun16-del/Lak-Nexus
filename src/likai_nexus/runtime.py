@@ -7,18 +7,19 @@ from dataclasses import dataclass
 
 from .config import Settings
 from .errors import ConfigError, ToolExecutionError
-from .executor.registry import ToolRegistry
+from .events import EventSink
 from .executor.service import ToolExecutor
-from .executor.tools import build_builtin_tools
 from .models.base import ModelBackend
 from .models.openai_backend import OpenAICompatibleBackend
 from .orchestrator.agent_loop import AgentLoop
-from .orchestrator.events import EventSink
 from .safety.approval import ApprovalHandler, CliApprovalHandler
 from .safety.review_mode import ReviewMode, parse_review_mode
+from .storage.app_data import AppDataManager
 from .storage.audit_repository import AuditRepository
 from .storage.database import Database
 from .storage.task_repository import TaskRepository
+from .tools.builtin import build_builtin_tools
+from .tools.registry import ToolRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,17 @@ class Runtime:
 
     agent: AgentLoop
     tasks: TaskRepository
+
+
+def prepare_runtime(settings: Settings) -> tuple[str, ...]:
+    """由运行时启动层准备应用目录和旧数据库，不让配置对象反向初始化存储。"""
+
+    return AppDataManager(
+        settings.project_root,
+        settings.workspace_root,
+        settings.database_path,
+        settings.use_default_database,
+    ).prepare()
 
 
 def build_runtime(
@@ -42,7 +54,7 @@ def build_runtime(
     """完成一次性任务所需的依赖组装，测试可注入 Fake Backend 和静态审批器。"""
 
     mode = parse_review_mode(review_mode)
-    settings.prepare_runtime()
+    prepare_runtime(settings)
     approval_handler = approvals or CliApprovalHandler()
     registry = ToolRegistry(build_builtin_tools(settings, mode), settings.max_output_bytes, mode)
     if mode is not ReviewMode.FULL_ACCESS:

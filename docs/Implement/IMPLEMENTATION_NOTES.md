@@ -320,6 +320,23 @@ git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 ```
 
+## Review P1 修复记录
+
+依据 `docs/Review/REVIEW.md` 的 `P1-1` 和 `P1-2` 完成修复：
+
+- `ToolOutput.effective_status()` 作为审计摘要、模型结果、运行事件和 SQLite 终态的唯一状态来源；默认工具、投影降级和四个内置工具的摘要均不再读取可能过时的 `is_error` 兼容字段。
+- 工具状态增加统一中文标签；契约测试补齐显式 `TIMEOUT`、`CANCELLED` 和异常路径，并断言 `ToolResult`、`RuntimeEvent`、审计摘要和 SQLite 状态一致。
+- 将原综合测试拆为 `test_executor_and_projections.py`、`test_review_modes_and_migrations.py` 和共享 `test_support.py`；`test_tool_contract.py` 继续作为可复用公共契约矩阵。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：164 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
 2 个跳过项仍是当前 Windows 权限不足导致的符号链接专项测试；未修改 `docs/Review/REVIEW.md`，等待 Reviewer 复审本轮 P1 修复。
 
 ## Review-5 两个 P1 修复记录
@@ -381,3 +398,28 @@ git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 ```
 
 2 个跳过项仍是当前 Windows 权限不足导致的符号链接专项测试；未修改 `docs/Review/REVIEW.md`。
+
+## 架构优化讨论方案执行记录
+
+依据 `docs/Planner/ARCHITECTURE_OPTIMIZATION_DISCUSSION.md` 中已确认的两组方案，并按用户明确指示执行：
+
+- 工具公共契约迁移到 `likai_nexus.tools`；新增 `ToolExecutionContext`，由内置工具注册点统一创建并传递路径、命令策略和审查模式。
+- `ToolResult` 现在明确拆分执行终态、模型投影、界面投影和审计投影；CLI 只消费通用字段协议，不再按 Bash 或其他具体工具名称渲染。
+- `ToolExecutor` 继续作为唯一执行门面，但将模型/界面/审计摘要职责分别委托给 `executor/projection.py` 与 `executor/audit.py`；执行顺序仍固定为查找、校验、安全、审批、执行、投影、终态审计。
+- 运行事件契约提升到 `likai_nexus.events`；`ToolSpec`、`ToolCall` 和结构化工具结果归工具契约模块，任务与模型消息继续由各自模块持有。
+- CLI 入口与控制台渲染器拆分；保留 `--no-progress`、审批提示和退出码行为。`Settings` 保持纯配置，应用数据准备由 `runtime.prepare_runtime()` 显式完成。
+- 新增可复用的 `tests/unit/test_tool_contract.py`，并将原阶段综合测试拆为执行器/投影、审查模式/迁移和共享支持文件，覆盖稳定职责边界。
+
+实现偏差与兼容说明：
+
+- 为保持现有扩展调用方稳定，`ToolExecutor` 保留旧的静态投影辅助入口，内部实现已委托到新投影服务；`ToolResult` 也保留 `content`、`metadata`、`is_error` 和 `display_metadata` 只读兼容属性。
+- 讨论方案中的 E/F/G 候选项没有达到触发条件，本轮未实现；未修改 Planner 文档，也未修改 Reviewer 产物。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：164 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```

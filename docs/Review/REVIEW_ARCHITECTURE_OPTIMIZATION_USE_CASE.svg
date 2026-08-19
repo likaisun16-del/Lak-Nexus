@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1080" viewBox="0 0 1500 1080">
+  <rect width="1500" height="1080" fill="white"/>
+  <text x="750" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">立凯中枢 - 架构优化已确认方案审查覆盖图</text>
+
+  <!-- Tool 开发者：W=220；域中位数=(180+260)/2=220 -->
+  <circle cx="60" cy="202" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="220" x2="60" y2="260" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="238" x2="85" y2="238" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="260" x2="38" y2="290" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="260" x2="82" y2="290" stroke="#333" stroke-width="2"/>
+  <text x="60" y="310" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Tool 开发者</text>
+  <line x1="78" y1="220" x2="108" y2="220" stroke="#aaaaaa" stroke-width="1.2"/>
+  <ellipse cx="200" cy="220" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="225" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Tool 扩展域</text>
+  <line x1="290" y1="220" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="220" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="220" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="220" x2="360" y2="340" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">单一执行上下文</text>
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">结构化 ToolResult</text>
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">显式工具注册</text>
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="345" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">通用展示协议</text>
+  <line x1="560" y1="100" x2="600" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="260" x2="600" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="340" x2="600" y2="340" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="105" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">内置 Tool 共享能力</text>
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="177" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审计摘要与终态</text>
+  <text x="700" y="193" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">不一致（P1）</text>
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="265" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">无目录自动扫描</text>
+  <ellipse cx="700" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="345" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Renderer 通用字段</text>
+
+  <!-- Runtime/Channel：W=580；域中位数=(540+620)/2=580 -->
+  <circle cx="60" cy="562" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="580" x2="60" y2="620" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="598" x2="85" y2="598" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="620" x2="38" y2="650" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="620" x2="82" y2="650" stroke="#333" stroke-width="2"/>
+  <text x="60" y="670" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Runtime / Channel</text>
+  <line x1="78" y1="580" x2="108" y2="580" stroke="#aaaaaa" stroke-width="1.2"/>
+  <ellipse cx="200" cy="580" rx="90" ry="32" fill="#3a7bd5" stroke="#3a7bd5" stroke-width="1.5"/>
+  <text x="200" y="585" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">执行与渠道域</text>
+  <line x1="290" y1="580" x2="360" y2="460" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="580" x2="360" y2="540" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="580" x2="360" y2="620" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="580" x2="360" y2="700" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="460" cy="460" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="465" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Executor 职责委托</text>
+  <ellipse cx="460" cy="540" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="545" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">中立运行事件</text>
+  <ellipse cx="460" cy="620" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="625" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CLI / Renderer 拆分</text>
+  <ellipse cx="460" cy="700" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="705" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Settings 保持纯净</text>
+  <line x1="560" y1="460" x2="600" y2="460" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="540" x2="600" y2="540" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="620" x2="600" y2="620" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="700" x2="600" y2="700" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="700" cy="460" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="457" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">调用展示早于校验</text>
+  <text x="700" y="473" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">顺序待澄清（P2）</text>
+  <ellipse cx="700" cy="540" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="545" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">顶层 events 契约</text>
+  <ellipse cx="700" cy="620" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="617" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">no-progress / 审批</text>
+  <text x="700" y="633" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">退出码兼容</text>
+  <ellipse cx="700" cy="700" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="697" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Runtime 准备目录</text>
+  <text x="700" y="713" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Storage 执行迁移</text>
+
+  <!-- Reviewer/CI：W=900；域中位数=(860+940)/2=900 -->
+  <circle cx="60" cy="882" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="900" x2="60" y2="940" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="918" x2="85" y2="918" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="940" x2="38" y2="970" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="940" x2="82" y2="970" stroke="#333" stroke-width="2"/>
+  <text x="60" y="990" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Reviewer / CI</text>
+  <line x1="78" y1="900" x2="108" y2="900" stroke="#aaaaaa" stroke-width="1.2"/>
+  <ellipse cx="200" cy="900" rx="90" ry="32" fill="#2e8b57" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="200" y="905" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">测试保障域</text>
+  <line x1="290" y1="900" x2="360" y2="860" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="900" x2="360" y2="940" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="460" cy="860" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="865" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">拆分超大测试文件</text>
+  <ellipse cx="460" cy="940" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="945" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">可复用 Tool 契约集</text>
+  <line x1="560" y1="860" x2="600" y2="860" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="940" x2="600" y2="940" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="700" cy="860" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="857" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">综合文件仍 1167 行</text>
+  <text x="700" y="873" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">职责混合（P1）</text>
+  <ellipse cx="700" cy="940" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="937" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">取消 / 异常缺失</text>
+  <text x="700" y="953" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审计一致性未断言</text>
+
+  <!-- 图例 -->
+  <rect x="1080" y="60" width="320" height="300" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1240" y="90" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">图例</text>
+  <ellipse cx="1190" cy="125" rx="78" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1190" y="130" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已落实</text>
+  <ellipse cx="1190" cy="175" rx="78" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1190" y="180" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">待补齐 / 待澄清</text>
+  <ellipse cx="1190" cy="225" rx="78" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1190" y="230" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Tool 扩展域</text>
+  <ellipse cx="1190" cy="275" rx="78" ry="22" fill="#3a7bd5" stroke="#3a7bd5" stroke-width="1.5"/>
+  <text x="1190" y="280" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">执行与渠道域</text>
+  <ellipse cx="1190" cy="325" rx="78" ry="22" fill="#2e8b57" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="1190" y="330" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">测试保障域</text>
+  <text x="750" y="1038" text-anchor="middle" font-size="18" font-weight="bold" fill="#922b2b" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审查结论：CHANGES_REQUIRED（2 个 P1，1 个非阻断 P2）</text>
+</svg>

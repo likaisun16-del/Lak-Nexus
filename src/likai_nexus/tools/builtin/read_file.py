@@ -6,11 +6,12 @@ import asyncio
 from typing import Any
 
 from ...errors import ToolExecutionError, ValidationError
-from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
 from ...safety.paths import WorkspacePathResolver
 from ...safety.redaction import action_fingerprint
 from ..base import Tool, ToolOutput
+from ..context import ToolExecutionContext
+from ..contracts import ToolSpec
 from .common import require_arguments, require_string
 
 
@@ -37,13 +38,14 @@ class ReadFileTool(Tool):
         },
     )
 
-    def __init__(self, resolver: WorkspacePathResolver, max_lines: int, max_bytes: int) -> None:
+    def __init__(self, context: ToolExecutionContext, max_lines: int, max_bytes: int) -> None:
         if max_bytes < 4:
             raise ValueError("工具 read 配置错误：max_bytes 至少为 4，才能保证截断游标可推进")
-        self.resolver = resolver
+        self.context = context
+        self.resolver = context.paths
         self.max_lines = max_lines
         self.max_bytes = max_bytes
-        self.review_mode = resolver.review_mode
+        self.review_mode = context.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -139,7 +141,7 @@ class ReadFileTool(Tool):
     def audit_summary(self, output: ToolOutput) -> str:
         metadata = output.metadata
         return (
-            f"read {'失败' if output.is_error else '成功'}：路径={self._safe_path(metadata.get('path'))}，"
+            f"read {output.effective_status().label}：路径={self._safe_path(metadata.get('path'))}，"
             f"字节数={metadata.get('bytes', 0)}，截断={metadata.get('truncated', False)}"
         )
 

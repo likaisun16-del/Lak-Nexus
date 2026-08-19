@@ -5,138 +5,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-import textwrap
 import uuid
-from typing import ClassVar, TextIO
 
 from ..config import Settings
 from ..errors import ConfigError, ModelBackendError
-from ..orchestrator.events import NullEventSink, RuntimeEvent
+from ..events import NullEventSink
 from ..orchestrator.schemas import TaskStatus
-from ..runtime import build_runtime
-from ..safety.redaction import redact_text, sanitize_terminal_text, truncate_text
+from ..runtime import build_runtime, prepare_runtime
+from ..safety.redaction import redact_text, sanitize_terminal_text
 from ..safety.review_mode import ReviewMode
 from ..storage.preferences import LocalPreferenceStore
-
-
-class ConsoleEventSink:
-    """把结构化运行事件投影为普通用户可读的精简 CLI 过程行。"""
-
-    _VISIBLE_EVENTS: ClassVar[set[str]] = {
-        "task_started",
-        "model_started",
-        "model_failed",
-        "tool_started",
-        "tool_finished",
-        "tool_failed",
-        "tool_timed_out",
-        "tool_rejected",
-        "tool_cancelled",
-    }
-
-    def __init__(self, stream: TextIO | None = None) -> None:
-        self.stream = stream or sys.stdout
-
-    def emit(self, event: RuntimeEvent) -> None:
-        if event.event_type not in self._VISIBLE_EVENTS:
-            return
-        if event.event_type == "task_started":
-            print(f"[任务] {event.message}", file=self.stream, flush=True)
-            return
-        if event.event_type in {"model_started", "model_failed"}:
-            self._emit_model_event(event)
-            return
-        tool_name = event.metadata.get("tool_name")
-        status = event.metadata.get("status")
-        if isinstance(tool_name, str) and isinstance(status, str):
-            if status == "started":
-                invocation = event.metadata.get("invocation")
-                if isinstance(invocation, str) and invocation:
-                    print(f"[工具] {tool_name}：执行指令", file=self.stream, flush=True)
-                    print(
-                        textwrap.indent(self._safe_text(invocation), "  "),
-                        file=self.stream,
-                        flush=True,
-                    )
-                else:
-                    print(f"[工具] {tool_name}：开始", file=self.stream, flush=True)
-                return
-            else:
-                elapsed = event.metadata.get("elapsed_ms", "?")
-                result = event.metadata.get("result")
-                message = f"{tool_name}：{self._status_label(status)}（{elapsed}ms）"
-                if isinstance(result, dict) and "exit_code" in result:
-                    message += f"，退出码={self._exit_code_label(result['exit_code'])}"
-                    if result.get("truncated"):
-                        message += "，输出已截断"
-                reason = event.metadata.get("reason")
-                if reason and (
-                    status in {"failed", "rejected", "cancelled"} or status == "timeout"
-                ):
-                    message += f"，{self._short_text(reason)}"
-            print(f"[工具] {message}", file=self.stream, flush=True)
-            self._emit_result(result)
-            return
-        print(f"[工具] {event.message}", file=self.stream, flush=True)
-
-    def _emit_model_event(self, event: RuntimeEvent) -> None:
-        turn_number = event.metadata.get("turn_number")
-        max_turns = event.metadata.get("max_turns")
-        if not isinstance(turn_number, int) or not isinstance(max_turns, int):
-            return
-        status = event.metadata.get("status")
-        if event.event_type == "model_started" and status == "started":
-            message = f"第 {turn_number}/{max_turns} 轮：处理中"
-        elif event.event_type == "model_failed" and status == "failed":
-            reason = event.metadata.get("reason")
-            message = f"第 {turn_number}/{max_turns} 轮：失败"
-            if reason:
-                message += f"，{self._short_text(reason)}"
-        else:
-            return
-        print(f"[模型] {message}", file=self.stream, flush=True)
-
-    def _emit_result(self, result: object) -> None:
-        if not isinstance(result, dict):
-            return
-        stdout = result.get("stdout")
-        stderr = result.get("stderr")
-        if isinstance(stdout, str) and stdout:
-            print("  stdout:", file=self.stream, flush=True)
-            print(textwrap.indent(self._safe_text(stdout), "    "), file=self.stream, flush=True)
-        if isinstance(stderr, str) and stderr:
-            print("  stderr:", file=self.stream, flush=True)
-            print(textwrap.indent(self._safe_text(stderr), "    "), file=self.stream, flush=True)
-        if (
-            isinstance(result.get("stdout"), str)
-            and isinstance(result.get("stderr"), str)
-            and not stdout
-            and not stderr
-        ):
-            print("  无输出", file=self.stream, flush=True)
-
-    @staticmethod
-    def _safe_text(value: object) -> str:
-        return redact_text(sanitize_terminal_text(str(value)))
-
-    @classmethod
-    def _short_text(cls, value: object) -> str:
-        single_line = " ".join(cls._safe_text(value).splitlines())
-        return truncate_text(single_line, 240)[0]
-
-    @staticmethod
-    def _exit_code_label(value: object) -> str:
-        return "不可用" if value is None else str(value)
-
-    @staticmethod
-    def _status_label(status: str) -> str:
-        return {
-            "success": "成功",
-            "failed": "失败",
-            "timeout": "超时",
-            "rejected": "拒绝",
-            "cancelled": "取消",
-        }.get(status, status)
+from .console_renderer import ConsoleEventSink
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -183,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     runtime = None
     try:
         settings = Settings.from_env()
-        for notice in settings.prepare_runtime():
+        for notice in prepare_runtime(settings):
             print(
                 f"[提示] {redact_text(sanitize_terminal_text(notice))}",
                 file=sys.stderr,

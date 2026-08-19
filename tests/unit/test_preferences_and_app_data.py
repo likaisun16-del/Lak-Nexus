@@ -9,9 +9,10 @@ import pytest
 
 from likai_nexus.config import Settings
 from likai_nexus.errors import ConfigError, PathAccessError
-from likai_nexus.executor.tools import build_builtin_tools
+from likai_nexus.runtime import prepare_runtime
 from likai_nexus.safety.review_mode import ReviewMode
 from likai_nexus.storage.preferences import LocalPreferenceStore
+from likai_nexus.tools.builtin import build_builtin_tools
 
 
 def _create_database(path: Path, marker: str) -> None:
@@ -47,8 +48,8 @@ def test_runtime_prepares_data_and_script_directories_idempotently(tmp_path: Pat
         project_root=tmp_path,
     )
 
-    settings.prepare_runtime()
-    settings.prepare_runtime()
+    prepare_runtime(settings)
+    prepare_runtime(settings)
 
     assert settings.data_root.is_dir()
     assert settings.script_root.is_dir()
@@ -66,7 +67,7 @@ def test_legacy_workspace_database_is_migrated_and_backed_up(tmp_path: Path) -> 
         database_path=Path("data/likai_nexus.db"),
     )
 
-    notices = settings.prepare_runtime()
+    notices = prepare_runtime(settings)
 
     assert settings.database_path.is_file()
     assert not legacy.exists()
@@ -87,7 +88,7 @@ def test_legacy_database_conflict_keeps_secondary_copy(tmp_path: Path) -> None:
     _create_database(second, "second")
     settings = Settings(workspace_root=workspace, project_root=tmp_path)
 
-    notices = settings.prepare_runtime()
+    notices = prepare_runtime(settings)
 
     assert "多个旧数据库" in notices[0]
     with sqlite3.connect(settings.database_path) as connection:
@@ -107,7 +108,7 @@ def test_invalid_legacy_database_stops_without_removing_original(tmp_path: Path)
     settings = Settings(workspace_root=workspace, project_root=tmp_path)
 
     with pytest.raises(ConfigError, match="数据库校验失败"):
-        settings.prepare_runtime()
+        prepare_runtime(settings)
 
     assert legacy.exists()
     assert not settings.database_path.exists()

@@ -11,10 +11,11 @@ import pytest
 
 from likai_nexus.channels.cli import ConsoleEventSink, build_parser, main
 from likai_nexus.errors import ConfigError, ModelBackendError
+from likai_nexus.events import NullEventSink, RuntimeEvent
 from likai_nexus.models.fake import FakeModelBackend
-from likai_nexus.orchestrator.events import NullEventSink, RuntimeEvent
 from likai_nexus.orchestrator.schemas import AssistantTurn
 from likai_nexus.runtime import build_runtime as real_build_runtime
+from likai_nexus.runtime import prepare_runtime
 from likai_nexus.safety.approval import ApprovalRequest, CliApprovalHandler, StaticApprovalHandler
 from likai_nexus.safety.review_mode import ReviewMode
 from likai_nexus.storage.preferences import LocalPreferenceStore
@@ -121,10 +122,10 @@ def test_cli_renders_structured_turn_and_bash_result_projection() -> None:
                 "status": "success",
                 "elapsed_ms": 12,
                 "result": {
-                    "stdout": "out\n",
-                    "stderr": "",
-                    "exit_code": 0,
-                    "truncated": False,
+                    "fields": [
+                        {"label": "退出码", "value": 0},
+                        {"label": "stdout", "value": "out\n"},
+                    ],
                 },
             },
         )
@@ -140,10 +141,10 @@ def test_cli_renders_structured_turn_and_bash_result_projection() -> None:
                 "elapsed_ms": 30,
                 "reason": "工具执行超时",
                 "result": {
-                    "stdout": "",
-                    "stderr": "",
-                    "exit_code": None,
-                    "truncated": False,
+                    "fields": [
+                        {"label": "退出码", "value": None},
+                        {"label": "输出", "value": "无输出"},
+                    ],
                 },
             },
         )
@@ -171,7 +172,8 @@ def test_cli_renders_structured_turn_and_bash_result_projection() -> None:
     assert "printf 'out" in output
     assert "stdout:" in output
     assert "退出码=0" in output
-    assert "bash：超时（30ms），退出码=不可用" in output
+    assert "bash：超时（30ms），工具执行超时" in output
+    assert "退出码=不可用" in output
     assert "无输出" in output
     assert "失败，模型调用失败：backend failed [工具] bash：成功 [任务] 伪造" in output
     assert output.count("\n[工具] bash：成功") == 1
@@ -242,7 +244,7 @@ def test_cli_without_preference_defaults_strict_and_relaxed_can_be_persisted(
 
 
 def test_cli_corrupt_preference_falls_back_to_strict(monkeypatch, settings, capsys) -> None:
-    settings.prepare_runtime()
+    prepare_runtime(settings)
     settings.preference_path.write_text("{broken", encoding="utf-8")
     monkeypatch.setattr("likai_nexus.channels.cli.Settings.from_env", lambda: settings)
     selected: list[ReviewMode] = []

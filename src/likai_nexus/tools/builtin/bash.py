@@ -11,11 +11,8 @@ import subprocess
 import sys
 from typing import Any
 
-from ...config import Settings
 from ...errors import ToolExecutionError, ValidationError
-from ...orchestrator.schemas import ToolSpec
 from ...safety.approval import ApprovalRequest
-from ...safety.command_policy import CommandPolicy
 from ...safety.redaction import (
     action_fingerprint,
     content_sha256,
@@ -24,8 +21,9 @@ from ...safety.redaction import (
     sanitize_terminal_text,
     truncate_text,
 )
-from ...safety.review_mode import ReviewMode
 from ..base import Tool, ToolOutput
+from ..context import ToolExecutionContext
+from ..contracts import ToolDisplayField, ToolDisplayProjection, ToolSpec
 from .common import require_arguments, require_string
 
 
@@ -54,10 +52,11 @@ class BashTool(Tool):
         },
     )
 
-    def __init__(self, settings: Settings, policy: CommandPolicy) -> None:
-        self.settings = settings
-        self.policy = policy
-        self.review_mode = policy.review_mode
+    def __init__(self, context: ToolExecutionContext) -> None:
+        self.context = context
+        self.settings = context.settings
+        self.policy = context.commands
+        self.review_mode = context.review_mode
 
     def validate(self, arguments: object) -> dict[str, Any]:
         values = require_arguments(arguments, self.name)
@@ -75,24 +74,24 @@ class BashTool(Tool):
         arguments["argv"] = self.policy.check(arguments["command"]).argv
 
     def approval_request(self, arguments: dict[str, Any]) -> ApprovalRequest | None:
-        if self.policy.review_mode is ReviewMode.FULL_ACCESS:
+        if not self.context.shell_requires_approval:
             return None
         fingerprint_input = {
             "command_sha256": content_sha256(arguments["command"]),
             "timeout_seconds": arguments["timeout_seconds"],
-            "mode": self.policy.review_mode.value,
+            "mode": self.context.review_mode.value,
         }
         fingerprint = action_fingerprint(fingerprint_input)
         return ApprovalRequest(
             action_type="bash",
             summary=(
                 f"在工作区 {self.settings.workspace_root} 执行命令："
-                f"{redact_text(arguments['command'])}（模式 {self.policy.review_mode.value}，"
+                f"{redact_text(arguments['command'])}（模式 {self.context.review_mode.value}，"
                 f"超时 {arguments['timeout_seconds']} 秒）"
             ),
             fingerprint=fingerprint,
             audit_summary=(
-                f"bash 动作：模式={self.policy.review_mode.value}，"
+                f"bash 动作：模式={self.context.review_mode.value}，"
                 f"超时={arguments['timeout_seconds']} 秒，"
                 f"command sha256={content_sha256(arguments['command'])}，"
                 f"审批指纹={fingerprint}"
@@ -102,7 +101,7 @@ class BashTool(Tool):
     async def execute(
         self, arguments: dict[str, Any], cancel_event: asyncio.Event | None = None
     ) -> ToolOutput:
-        strict_mode = self.policy.review_mode is ReviewMode.STRICT
+        strict_mode = self.context.shell_uses_restricted_argv
         if strict_mode:
             argv = self._normalized_argv(arguments)
         else:
@@ -212,21 +211,27 @@ class BashTool(Tool):
             lines.append(f"超时：{timeout} 秒")
         return "\n".join(lines)
 
-    def display_result(self, output: ToolOutput | None) -> dict[str, Any]:
+    def display_result(self, output: ToolOutput | None) -> ToolDisplayProjection:
         if output is None:
-            return {"exit_code": None, "truncated": False}
+            return ToolDisplayProjection((ToolDisplayField("退出码", None),))
         display = output.display_metadata
-        return {
-            "stdout": display.get("stdout", ""),
-            "stderr": display.get("stderr", ""),
-            "exit_code": display.get("exit_code"),
-            "truncated": bool(display.get("truncated", False)),
-        }
+        stdout = display.get("stdout", "")
+        stderr = display.get("stderr", "")
+        fields = [ToolDisplayField("退出码", display.get("exit_code"))]
+        if stdout:
+            fields.append(ToolDisplayField("stdout", stdout))
+        if stderr:
+            fields.append(ToolDisplayField("stderr", stderr))
+        if not stdout and not stderr:
+            fields.append(ToolDisplayField("输出", "无输出"))
+        if display.get("truncated"):
+            fields.append(ToolDisplayField("输出状态", "已截断"))
+        return ToolDisplayProjection(tuple(fields))
 
     def audit_arguments(self, arguments: object) -> str:
         values = arguments if isinstance(arguments, dict) else {}
         projection = {
-            "mode": self.policy.review_mode.value,
+            "mode": self.context.review_mode.value,
             "command_sha256": content_sha256(values["command"])
             if isinstance(values.get("command"), str)
             else None,
@@ -244,7 +249,7 @@ class BashTool(Tool):
     def audit_summary(self, output: ToolOutput) -> str:
         metadata = output.metadata
         return (
-            f"bash {'失败' if output.is_error else '成功'}：模式={self.policy.review_mode.value}，"
+            f"bash {output.effective_status().label}：模式={self.context.review_mode.value}，"
             f"退出码={metadata.get('exit_code')}，超时={metadata.get('timed_out', False)}，"
             f"取消={metadata.get('cancelled', False)}，输出截断={metadata.get('truncated', False)}"
         )

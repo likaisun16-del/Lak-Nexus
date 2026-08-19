@@ -6,7 +6,8 @@ import asyncio
 from collections.abc import Sequence
 from typing import Protocol
 
-from ..orchestrator.schemas import AssistantTurn, ChatMessage, ToolSpec
+from ..orchestrator.schemas import AssistantTurn, ChatMessage
+from ..tools.contracts import ToolSpec
 
 
 class ModelBackend(Protocol):

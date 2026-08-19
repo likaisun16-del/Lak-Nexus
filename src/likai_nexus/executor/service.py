@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import Any
 
 from ..errors import ApprovalDeniedError, AuditError, ConfigError, NexusError
-from ..orchestrator.events import EventSink, NullEventSink, RuntimeEvent, emit_safely
-from ..orchestrator.schemas import ToolCall, ToolResult
+from ..events import EventSink, NullEventSink, RuntimeEvent, emit_safely
 from ..safety.approval import ApprovalHandler, ApprovalRequest
 from ..safety.redaction import (
     redact_text,
@@ -17,12 +15,21 @@ from ..safety.redaction import (
     safe_audit_identifier,
     sanitize_terminal_text,
     sanitize_terminal_value,
-    truncate_text,
 )
 from ..safety.review_mode import ReviewMode, parse_review_mode
 from ..storage.audit_repository import AuditRepository
-from .base import Tool, ToolOutput, safe_argument_summary
-from .registry import ToolRegistry
+from ..tools.base import Tool, ToolOutput, safe_argument_summary
+from ..tools.contracts import (
+    ToolAuditProjection,
+    ToolCall,
+    ToolDisplayProjection,
+    ToolModelProjection,
+    ToolResult,
+    ToolStatus,
+)
+from ..tools.registry import ToolRegistry
+from .audit import AuditLifecycle
+from .projection import ToolProjectionService
 
 
 class ToolExecutor:
@@ -53,6 +60,12 @@ class ToolExecutor:
             )
         self.review_mode = registry_mode
         self.event_sink = event_sink or NullEventSink()
+        self.projection = ToolProjectionService(
+            registry.model_message_budget(),
+            self._DISPLAY_COMMAND_BYTES,
+            self._DISPLAY_RESULT_BYTES,
+        )
+        self.audit = AuditLifecycle(audit_repository)
 
     async def execute(
         self,
@@ -67,6 +80,7 @@ class ToolExecutor:
         tool_label = self.safe_tool_label(tool_call.name)
         audit_id = self._start_tool_call(task_id, tool_call, audit_arguments, tool_label)
         started_at = time.monotonic()
+        display_invocation = self.projection.display_arguments(tool, tool_call.arguments)
         self._emit(
             "tool_started",
             task_id,
@@ -74,7 +88,7 @@ class ToolExecutor:
             {
                 "tool_name": tool_label,
                 "status": "started",
-                "invocation": self._display_arguments(tool, tool_call.arguments),
+                "invocation": display_invocation,
             },
         )
         if tool is None:
@@ -113,13 +127,16 @@ class ToolExecutor:
             )
             return ToolResult(
                 tool_call.id,
-                self._model_content(
-                    message,
+                ToolStatus.FAILED,
+                ToolModelProjection(
+                    self.projection.model_content(
+                        message,
+                        {"error_type": "UnknownTool"},
+                        self.registry.model_message_budget(),
+                    ),
                     {"error_type": "UnknownTool"},
-                    self.registry.model_message_budget(),
                 ),
-                is_error=True,
-                metadata={"error_type": "UnknownTool"},
+                audit=ToolAuditProjection(audit_arguments, message),
             )
 
         try:
@@ -173,27 +190,30 @@ class ToolExecutor:
                     f"模式自动允许：工具 {tool.name}，模式={self.review_mode.value}",
                 )
             output = await tool.execute(arguments, cancel_event)
-            summary = self._audit_summary(tool, output)
-            result = self._tool_result(tool, tool_call.id, output)
+            summary = self.projection.audit_summary(tool, output)
+            status = self._tool_status(output)
+            display = self.projection.display_result(tool, output)
+            result = self._tool_result(
+                tool, tool_call.id, output, audit_arguments, summary, display
+            )
             self._finish_tool_call(
                 audit_id,
-                status="failed" if output.is_error else "success",
+                status=status.value,
                 result_summary=summary,
-                error_type="ToolExecutionError" if output.is_error else None,
-                error_message=summary if output.is_error else None,
+                error_type="ToolExecutionError" if status.is_error else None,
+                error_message=summary if status.is_error else None,
             )
-            status = self._tool_status(output)
             event_metadata = self._tool_event_metadata(
                 tool,
-                output,
-                status,
+                status.value,
                 self._elapsed_ms(started_at),
                 summary,
+                display,
             )
             self._emit(
-                self._tool_event_type(status),
+                self._tool_event_type(status.value),
                 task_id,
-                f"工具{self._status_label(status)}：{tool.name}，"
+                f"工具{self._status_label(status.value)}：{tool.name}，"
                 f"耗时={self._elapsed_ms(started_at)}ms，{summary}",
                 event_metadata,
             )
@@ -213,10 +233,10 @@ class ToolExecutor:
                 "任务收到取消信号",
                 self._tool_event_metadata(
                     tool,
-                    None,
                     "cancelled",
                     self._elapsed_ms(started_at),
                     "任务收到取消信号",
+                    ToolDisplayProjection(),
                 ),
             )
             raise
@@ -235,20 +255,22 @@ class ToolExecutor:
                 f"原因={type(exc).__name__}",
                 self._tool_event_metadata(
                     tool,
-                    None,
                     "failed",
                     self._elapsed_ms(started_at),
                     f"审计失败：{type(exc).__name__}",
+                    ToolDisplayProjection(),
                 ),
             )
             raise
         # 工具边界统一记录未知异常，保留工具名和调用 ID 以便审计定位。
         except Exception as exc:  # noqa: BLE001
             message = self._error_message(tool.name, exc)
-            status = "rejected" if isinstance(exc, ApprovalDeniedError) else "failed"
+            tool_status = (
+                ToolStatus.REJECTED if isinstance(exc, ApprovalDeniedError) else ToolStatus.FAILED
+            )
             self._finish_tool_call(
                 audit_id,
-                status=status,
+                status=tool_status.value,
                 result_summary=message,
                 error_type=type(exc).__name__,
                 error_message=message,
@@ -261,75 +283,70 @@ class ToolExecutor:
                 f"耗时={self._elapsed_ms(started_at)}ms，{message}",
                 self._tool_event_metadata(
                     tool,
-                    None,
-                    "rejected" if rejected else "failed",
+                    tool_status.value,
                     self._elapsed_ms(started_at),
                     message,
+                    ToolDisplayProjection(),
                 ),
             )
             return ToolResult(
                 tool_call.id,
-                self._model_content(
-                    message,
+                tool_status,
+                ToolModelProjection(
+                    self.projection.model_content(
+                        message,
+                        {"error_type": type(exc).__name__},
+                        self.registry.model_message_budget(),
+                    ),
                     {"error_type": type(exc).__name__},
-                    self.registry.model_message_budget(),
                 ),
-                is_error=True,
-                metadata={"error_type": type(exc).__name__},
+                audit=ToolAuditProjection(audit_arguments, message),
             )
 
-    def _tool_result(self, tool: Tool, tool_call_id: str, output: ToolOutput) -> ToolResult:
+    def _tool_result(
+        self,
+        tool: Tool,
+        tool_call_id: str,
+        output: ToolOutput,
+        audit_arguments: str,
+        audit_summary: str,
+        display: ToolDisplayProjection,
+    ) -> ToolResult:
         """统一生成回填模型的工具结果，所有成功和错误分支共享总预算。"""
 
-        metadata = self._model_metadata(tool, output)
+        metadata = self.projection.model_metadata(tool, output)
         return ToolResult(
             tool_call_id,
-            self._model_content(
-                output.content,
+            output.effective_status(),
+            ToolModelProjection(
+                self.projection.model_content(
+                    output.content,
+                    metadata,
+                    self.registry.model_message_budget(),
+                    self.projection.model_metadata_priority(tool, output, metadata),
+                ),
                 metadata,
-                self.registry.model_message_budget(),
-                self._model_metadata_priority(tool, output, metadata),
             ),
-            is_error=output.is_error,
-            metadata=output.metadata,
+            display=display,
+            audit=ToolAuditProjection(audit_arguments, audit_summary),
         )
 
     def _start_tool_call(
         self, task_id: str, tool_call: ToolCall, arguments: str, tool_label: str
     ) -> str:
-        """启动审计失败时立即抛出系统错误，交给 Agent Loop 终结任务。"""
+        """保留执行器门面方法，实际生命周期由 AuditLifecycle 负责。"""
 
-        try:
-            return self.audit_repository.start_tool_call(
-                task_id,
-                tool_call.id,
-                tool_label,
-                arguments,
-                canonical_tool_name=True,
-            )
-        except Exception as exc:
-            raise AuditError(
-                f"工具审计启动失败：工具 {tool_label}，调用 {safe_audit_identifier(tool_call.id, 'call')}，"
-                f"原因：{type(exc).__name__}"
-            ) from exc
+        return self.audit.start_tool_call(task_id, tool_call, arguments, tool_label)
 
     def _finish_tool_call(self, audit_id: str, **kwargs: Any) -> None:
-        """审计结束失败不能被转换成普通工具错误，避免任务假装成功。"""
+        """保留执行器门面方法，实际终态记录由 AuditLifecycle 负责。"""
 
-        try:
-            self.audit_repository.finish_tool_call(audit_id, **kwargs)
-        except Exception as exc:
-            raise AuditError(
-                f"工具审计结束失败：审计记录 {audit_id}，原因：{type(exc).__name__}"
-            ) from exc
+        self.audit.finish_tool_call(audit_id, **kwargs)
 
     def _best_effort_finish(self, audit_id: str, **kwargs: Any) -> None:
-        """审计异常后尝试补写终态，补写失败仍由原始 AuditError 交给编排层。"""
+        """保留执行器门面方法，实际补写由 AuditLifecycle 负责。"""
 
-        try:
-            self.audit_repository.finish_tool_call(audit_id, **kwargs)
-        except Exception:  # noqa: BLE001
-            return
+        self.audit.best_effort_finish(audit_id, **kwargs)
 
     def _record_approval(
         self,
@@ -339,26 +356,16 @@ class ToolExecutor:
         decision: bool,
         decision_source: str = "human",
     ) -> None:
-        """保存人工或模式决定的安全摘要，不把审批预览正文写入数据库。"""
+        """保留执行器门面方法，实际审批记录由 AuditLifecycle 负责。"""
 
-        try:
-            audit_summary = approval.audit_summary or (
-                f"动作类型={approval.action_type}，审批指纹={approval.fingerprint}"
-            )
-            self.audit_repository.record_approval(
-                task_id,
-                tool_call.id,
-                approval.action_type,
-                redact_text(audit_summary),
-                decision,
-                decision_source,
-            )
-        except Exception as exc:
-            raise AuditError(
-                f"审批审计写入失败：工具 {self.safe_tool_label(tool_call.name)}，"
-                f"调用 {safe_audit_identifier(tool_call.id, 'call')}，"
-                f"原因：{type(exc).__name__}"
-            ) from exc
+        self.audit.record_approval(
+            task_id,
+            tool_call,
+            approval,
+            decision,
+            decision_source,
+            self.safe_tool_label(tool_call.name),
+        )
 
     def _audit_arguments(self, tool: Tool | None, arguments: object) -> str:
         """委托工具生成参数摘要，未声明时退回不含值的保守摘要。"""
@@ -377,28 +384,13 @@ class ToolExecutor:
         budget: int | None = None,
         metadata_priority: tuple[str, ...] | None = None,
     ) -> str:
-        """在统一字节预算内保留正文和安全状态，避免截断信息被二次截掉。"""
+        """兼容旧测试和扩展调用方，具体模型投影由独立服务实现。"""
 
-        content = redact_text(content)
-        safe_metadata = dict(metadata)
-        if not safe_metadata:
-            return truncate_text(content, budget)[0] if budget is not None else content
-        status = ToolExecutor._status_envelope(safe_metadata, budget, metadata_priority)
-        if budget is None:
-            return content + status
-        if len((content + status).encode("utf-8")) <= budget:
-            return content + status
-        body_budget = max(0, budget - len(status.encode("utf-8")))
-        if len(content.encode("utf-8")) > body_budget and not safe_metadata.get("truncated"):
-            safe_metadata = {**safe_metadata, "truncated": True}
-            status = ToolExecutor._status_envelope(safe_metadata, budget, metadata_priority)
-            body_budget = max(0, budget - len(status.encode("utf-8")))
-        body = ToolExecutor._bounded_model_body(
-            content,
-            body_budget,
-            bool(safe_metadata.get("truncated")),
-        )
-        return body + status
+        return ToolProjectionService(
+            budget or 0,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).model_content(content, metadata, budget, metadata_priority)
 
     @staticmethod
     def _status_envelope(
@@ -406,48 +398,23 @@ class ToolExecutor:
         budget: int | None,
         metadata_priority: tuple[str, ...] | None = None,
     ) -> str:
-        """按工具声明的字段顺序压缩状态，确保小预算仍能传递必要状态。"""
+        """兼容旧调用方，具体状态信封由独立投影服务实现。"""
 
-        serialized = redact_text(
-            json.dumps(redact_value(metadata), ensure_ascii=False, sort_keys=True)
-        )
-        status = f"\n[工具状态] {serialized}"
-        if budget is None or len(status.encode("utf-8")) <= budget:
-            return status
-        priority = tuple(metadata_priority or ())
-        ordered_keys = priority + tuple(key for key in metadata if key not in priority)
-        compact: dict[str, Any] = {}
-        for key in ordered_keys:
-            candidate = {**compact, key: metadata[key]}
-            serialized = redact_text(
-                json.dumps(redact_value(candidate), ensure_ascii=False, separators=(",", ":"))
-            )
-            status = f"\n[状态] {serialized}"
-            if len(status.encode("utf-8")) <= budget:
-                compact = candidate
-            elif compact:
-                break
-        if compact:
-            serialized = redact_text(
-                json.dumps(redact_value(compact), ensure_ascii=False, separators=(",", ":"))
-            )
-            return f"\n[状态] {serialized}"
-        minimal = {"truncated": True} if metadata.get("truncated") else {}
-        fallback = f"\n[状态] {json.dumps(minimal, ensure_ascii=False, separators=(',', ':'))}"
-        return truncate_text(fallback, budget)[0] if budget is not None else fallback
+        return ToolProjectionService(
+            budget or 0,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).status_envelope(metadata, budget, metadata_priority)
 
     @staticmethod
     def _bounded_model_body(content: str, budget: int, truncated: bool) -> str:
-        """截取模型正文并尽量保留中文截断标记，状态信封负责最终可见性。"""
+        """兼容旧调用方，具体正文截断由独立投影服务实现。"""
 
-        if not truncated:
-            return truncate_text(content, budget)[0]
-        marker = "\n[输出已截断]"
-        if len(marker.encode("utf-8")) > budget:
-            return truncate_text(content, budget)[0]
-        source = content.removesuffix(marker)
-        prefix, _ = truncate_text(source, budget - len(marker.encode("utf-8")))
-        return prefix + marker
+        return ToolProjectionService(
+            budget,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).bounded_model_body(content, budget, truncated)
 
     def _automatic_approval(
         self, tool: Tool, arguments: dict[str, Any]
@@ -465,108 +432,64 @@ class ToolExecutor:
 
     @staticmethod
     def _model_metadata(tool: Tool, output: ToolOutput) -> dict[str, Any]:
-        """调用工具声明的模型状态，失败时使用不泄露内部 metadata 的默认值。"""
+        """兼容旧调用方，具体模型状态由独立投影服务实现。"""
 
-        try:
-            metadata = tool.model_metadata(output)
-        except Exception:  # noqa: BLE001
-            return {}
-        return dict(metadata) if isinstance(metadata, dict) else {}
+        return ToolProjectionService(0, ToolExecutor._DISPLAY_COMMAND_BYTES, ToolExecutor._DISPLAY_RESULT_BYTES).model_metadata(tool, output)
 
     @staticmethod
     def _model_metadata_priority(
         tool: Tool, output: ToolOutput, metadata: dict[str, Any]
     ) -> tuple[str, ...]:
-        """读取工具声明的状态优先级，并过滤不存在字段避免生成无效状态。"""
+        """兼容旧调用方，具体状态优先级由独立投影服务实现。"""
 
-        try:
-            priority = tool.model_metadata_priority(output)
-        except Exception:  # noqa: BLE001
-            priority = tuple(metadata)
-        if not isinstance(priority, tuple):
-            priority = tuple(priority) if isinstance(priority, list) else tuple(metadata)
-        return tuple(key for key in priority if key in metadata)
+        return ToolProjectionService(0, ToolExecutor._DISPLAY_COMMAND_BYTES, ToolExecutor._DISPLAY_RESULT_BYTES).model_metadata_priority(tool, output, metadata)
 
     @staticmethod
     def _audit_summary(tool: Tool, output: ToolOutput) -> str:
-        """调用工具声明的结构化摘要，避免核心层按工具名称分支。"""
+        """兼容旧调用方，具体审计摘要由独立投影服务实现。"""
 
-        try:
-            return redact_text(tool.audit_summary(output))
-        except Exception:  # noqa: BLE001
-            state = "失败" if output.is_error else "成功"
-            return f"{tool.name} {state}：结果摘要生成失败，未保存结果正文"
+        return ToolProjectionService(0, ToolExecutor._DISPLAY_COMMAND_BYTES, ToolExecutor._DISPLAY_RESULT_BYTES).audit_summary(tool, output)
 
     @staticmethod
     def _display_arguments(tool: Tool | None, arguments: object) -> str:
-        try:
-            if tool is None:
-                value = safe_argument_summary("unknown", arguments)
-            else:
-                value = tool.display_arguments(arguments)
-            return ToolExecutor._bounded_display_text(
-                value,
-                ToolExecutor._DISPLAY_COMMAND_BYTES,
-                "\n[指令已截断]",
-            )
-        except Exception:  # noqa: BLE001
-            # 调用展示是旁路能力；任何第三方值转换或后处理异常都不能阻止实际工具执行。
-            return "[指令展示不可用]"
+        """兼容旧调用方，具体参数展示由独立投影服务实现。"""
+
+        return ToolProjectionService(
+            0,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).display_arguments(tool, arguments)
 
     @staticmethod
-    def _display_result(tool: Tool | None, output: ToolOutput | None) -> dict[str, Any]:
-        try:
-            if tool is None:
-                return {}
-            value = tool.display_result(output)
-            if not isinstance(value, dict):
-                return {}
-            safe_value = redact_value(sanitize_terminal_value(value))
-            if not isinstance(safe_value, dict):
-                return {}
-            for key in ("stdout", "stderr"):
-                if isinstance(safe_value.get(key), str):
-                    safe_value[key] = ToolExecutor._bounded_display_text(
-                        safe_value[key],
-                        ToolExecutor._DISPLAY_RESULT_BYTES,
-                        "\n[输出预览已截断]",
-                    )
-            return safe_value
-        except Exception:  # noqa: BLE001
-            # 展示投影是旁路能力；任何第三方结构、字符串或脱敏异常都只能降级为空展示。
-            return {}
+    def _display_result(
+        tool: Tool | None, output: ToolOutput | None
+    ) -> ToolDisplayProjection:
+        """兼容旧调用方，具体结果展示由独立投影服务实现。"""
+
+        return ToolProjectionService(
+            0,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).display_result(tool, output)
 
     @classmethod
     def _tool_event_metadata(
         cls,
         tool: Tool | None,
-        output: ToolOutput | None,
         status: str,
         elapsed_ms: int,
         reason: str | None,
+        display: ToolDisplayProjection,
     ) -> dict[str, Any]:
-        metadata: dict[str, Any] = {
-            "tool_name": tool.name if tool is not None else "unknown",
-            "status": status,
-            "elapsed_ms": elapsed_ms,
-        }
-        if reason:
-            metadata["reason"] = cls._short_reason(reason)
-        result = cls._display_result(tool, output)
-        if result:
-            metadata["result"] = result
-            for key in ("exit_code", "truncated"):
-                if key in result:
-                    metadata[key] = result[key]
-        return metadata
+        return ToolProjectionService(
+            0,
+            cls._DISPLAY_COMMAND_BYTES,
+            cls._DISPLAY_RESULT_BYTES,
+        ).event_metadata(tool, status, elapsed_ms, reason, display)
 
     @staticmethod
-    def _tool_status(output: ToolOutput) -> str:
-        if output.metadata.get("cancelled"):
-            return "cancelled"
-        if output.metadata.get("timed_out"):
-            return "timeout"
-        return "failed" if output.is_error else "success"
+    def _tool_status(output: ToolOutput) -> ToolStatus:
+        return output.effective_status()
 
     @staticmethod
     def _tool_event_type(status: str) -> str:
@@ -589,18 +512,19 @@ class ToolExecutor:
 
     @staticmethod
     def _short_reason(reason: str) -> str:
-        safe_reason = redact_text(sanitize_terminal_text(reason))
-        first_line = safe_reason.splitlines()[0] if safe_reason.splitlines() else safe_reason
-        return truncate_text(first_line, 240)[0]
+        return ToolProjectionService(
+            0,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).short_reason(reason)
 
     @staticmethod
     def _bounded_display_text(value: str, limit: int, marker: str) -> str:
-        safe_value = redact_text(sanitize_terminal_text(str(value)))
-        marker_bytes = len(marker.encode("utf-8"))
-        if marker_bytes >= limit:
-            return truncate_text(marker, limit)[0]
-        bounded, truncated = truncate_text(safe_value, limit - marker_bytes)
-        return bounded + marker if truncated else bounded
+        return ToolProjectionService(
+            0,
+            ToolExecutor._DISPLAY_COMMAND_BYTES,
+            ToolExecutor._DISPLAY_RESULT_BYTES,
+        ).bounded_display_text(value, limit, marker)
 
     @staticmethod
     def _tool_label(tool_name: str, tool: Tool | None) -> str:
@@ -618,26 +542,9 @@ class ToolExecutor:
     def record_mode_confirmation(self, task_id: str, decision_source: str = "human") -> None:
         """记录 full-access 的首次人工确认或本地偏好沿用。"""
 
-        request = ApprovalRequest(
-            action_type="full_access_session",
-            summary="任务级完全访问确认",
-            audit_summary=(
-                f"任务审查模式={self.review_mode.value}，启动确认来源={decision_source}"
-            ),
+        self.audit.record_mode_confirmation(
+            task_id, self.review_mode.value, decision_source
         )
-        try:
-            self.audit_repository.record_approval(
-                task_id,
-                "__task__",
-                request.action_type,
-                request.audit_summary,
-                True,
-                decision_source,
-            )
-        except Exception as exc:
-            raise AuditError(
-                f"完全访问确认审计写入失败：任务 {task_id}，原因：{type(exc).__name__}"
-            ) from exc
 
     def _emit(
         self,
