@@ -47,3 +47,7 @@ class TaskAlreadyExistsError(NexusError):
 
 class TaskCancelledError(NexusError):
     """任务收到取消信号并停止后续执行。"""
+
+
+class SessionError(NexusError):
+    """会话、消息树或活动分支操作失败。"""

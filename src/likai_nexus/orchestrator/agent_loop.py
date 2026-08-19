@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Protocol
 
 from ..errors import ConfigError, TaskAlreadyExistsError
@@ -63,7 +63,7 @@ class AgentLoop:
         backend: ModelBackend,
         executor: ToolExecutor,
         task_store: TaskStateStore,
-        max_turns: int = 20,
+        max_turns: int = 50,
         *,
         review_mode: ReviewMode | str | None = None,
         approvals: ApprovalHandler | None = None,
@@ -96,8 +96,9 @@ class AgentLoop:
         *,
         task_id: str | None = None,
         cancel_event: asyncio.Event | None = None,
+        context_messages: Sequence[ChatMessage] | None = None,
     ) -> AgentResult:
-        """创建并执行一次任务，重复 task_id 直接失败而不覆盖旧记录。"""
+        """创建并执行一次任务；可接收由 Session 预先解析的可见分支历史。"""
 
         if not request_text.strip():
             raise ValueError("任务创建失败：request_text 不能为空")
@@ -153,9 +154,10 @@ class AgentLoop:
                     review_mode=self.review_mode.value,
                     mode_guidance=self._mode_guidance(),
                 ),
-            ),
-            ChatMessage(role="user", content=request_text),
+            )
         ]
+        messages.extend(context_messages or ())
+        messages.append(ChatMessage(role="user", content=request_text))
         cancel_event = cancel_event or asyncio.Event()
         try:
             return await self._run_turns(task_id, messages, cancel_event)

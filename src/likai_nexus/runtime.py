@@ -9,6 +9,8 @@ from .config import Settings
 from .errors import ConfigError, ToolExecutionError
 from .events import EventSink
 from .executor.service import ToolExecutor
+from .git import GitReadOnly
+from .memory.session import SessionService
 from .models.base import ModelBackend
 from .models.openai_backend import OpenAICompatibleBackend
 from .orchestrator.agent_loop import AgentLoop
@@ -16,7 +18,9 @@ from .safety.approval import ApprovalHandler, CliApprovalHandler
 from .safety.review_mode import ReviewMode, parse_review_mode
 from .storage.app_data import AppDataManager
 from .storage.audit_repository import AuditRepository
+from .storage.commit_repository import CommitRepository
 from .storage.database import Database
+from .storage.session_repository import SessionRepository
 from .storage.task_repository import TaskRepository
 from .tools.builtin import build_builtin_tools
 from .tools.registry import ToolRegistry
@@ -28,6 +32,7 @@ class Runtime:
 
     agent: AgentLoop
     tasks: TaskRepository
+    sessions: SessionService | None = None
 
 
 def prepare_runtime(settings: Settings) -> tuple[str, ...]:
@@ -70,8 +75,9 @@ def build_runtime(
     executor = ToolExecutor(
         registry, approval_handler, audit, mode, event_sink
     )
+    model_backend = backend or OpenAICompatibleBackend(settings)
     agent = AgentLoop(
-        backend or OpenAICompatibleBackend(settings),
+        model_backend,
         executor,
         tasks,
         settings.max_turns,
@@ -81,4 +87,24 @@ def build_runtime(
         full_access_confirmed=full_access_confirmed,
         on_full_access_confirmed=on_full_access_confirmed,
     )
-    return Runtime(agent=agent, tasks=tasks)
+    sessions = SessionService(
+        SessionRepository(database),
+        agent=agent,
+        backend=model_backend,
+        commits=CommitRepository(database),
+        git_reader=GitReadOnly(settings.project_root),
+    )
+    return Runtime(agent=agent, tasks=tasks, sessions=sessions)
+
+
+def build_session_service(settings: Settings) -> SessionService:
+    """只组装 Session 存储，供不需要模型调用的会话管理命令使用。"""
+
+    prepare_runtime(settings)
+    database = Database(settings.database_path)
+    database.initialize()
+    return SessionService(
+        SessionRepository(database),
+        commits=CommitRepository(database),
+        git_reader=GitReadOnly(settings.project_root),
+    )

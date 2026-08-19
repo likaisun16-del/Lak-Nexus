@@ -84,7 +84,7 @@ class Settings:
     max_output_bytes: int = DEFAULT_OUTPUT_BYTES
     max_read_lines: int = 2_000
     max_read_bytes: int = DEFAULT_READ_BYTES
-    max_turns: int = 20
+    max_turns: int = 50
     model_timeout_seconds: int = 60
     api_key: str | None = None
     model: str = "gpt-4o-mini"
@@ -186,7 +186,7 @@ class Settings:
             max_read_bytes=_positive_int(
                 values.get("MAX_READ_BYTES", str(DEFAULT_READ_BYTES)), "MAX_READ_BYTES"
             ),
-            max_turns=_positive_int(values.get("MAX_TURNS", "20"), "MAX_TURNS"),
+            max_turns=_positive_int(values.get("MAX_TURNS", "50"), "MAX_TURNS"),
             model_timeout_seconds=_positive_int(
                 values.get("MODEL_TIMEOUT_SECONDS", "60"), "MODEL_TIMEOUT_SECONDS"
             ),

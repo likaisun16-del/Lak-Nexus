@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="740" viewBox="0 0 1450 740">
+  <rect width="1450" height="740" fill="white"/>
+  <text x="725" y="42" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Session 树形会话与 Git Commit 关联 - 业务用例图</text>
+
+  <!-- Actor：本地用户，W=340 -->
+  <circle cx="60" cy="322" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="340" x2="60" y2="380" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="358" x2="85" y2="358" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="380" x2="38" y2="410" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="380" x2="82" y2="410" stroke="#333" stroke-width="2"/>
+  <text x="60" y="430" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地用户</text>
+
+  <!-- Session 域：一级用例 y=100/180/260/340/420/500/580，中位数=340 -->
+  <ellipse cx="200" cy="340" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="345" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Session 会话域</text>
+  <line x1="78" y1="340" x2="108" y2="340" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <!-- 一级用例 -->
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新建会话</text>
+
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">提交问题并获得回答</text>
+
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">查看会话列表</text>
+
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="345" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">查看对话历史</text>
+
+  <ellipse cx="460" cy="420" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="425" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">回到历史节点并分支</text>
+
+  <ellipse cx="460" cy="500" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="505" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">切换并继续会话</text>
+
+  <ellipse cx="460" cy="580" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="585" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">确认删除会话</text>
+
+  <!-- 域到一级用例 -->
+  <line x1="290" y1="340" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="340" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="340" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="340" x2="360" y2="340" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="340" x2="360" y2="420" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="340" x2="360" y2="500" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="340" x2="360" y2="580" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 二级用例：问答流程 -->
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="105" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">执行现有用户 Task</text>
+
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="185" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">保存树形可见问答</text>
+
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="265" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">模型生成首轮标题</text>
+
+  <line x1="560" y1="180" x2="600" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="260" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 二级与三级用例：消息分支和 Commit SHA 查询 -->
+  <ellipse cx="700" cy="420" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="425" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">消息树创建新分支</text>
+  <line x1="560" y1="420" x2="600" y2="420" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="940" cy="420" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="940" y="425" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">查询关联 Commit SHA</text>
+  <line x1="800" y1="420" x2="840" y2="420" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 二级用例：切换会话 -->
+  <ellipse cx="700" cy="500" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="505" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">加载选中活动路径</text>
+  <line x1="560" y1="500" x2="600" y2="500" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 二级用例：删除会话 -->
+  <ellipse cx="700" cy="580" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="585" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">级联删除可见消息树</text>
+  <line x1="560" y1="580" x2="600" y2="580" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 图例 -->
+  <rect x="1060" y="70" width="320" height="245" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1220" y="100" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">图例</text>
+
+  <ellipse cx="1150" cy="135" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1150" y="140" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">已有用例</text>
+
+  <ellipse cx="1150" cy="185" rx="70" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1150" y="190" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新增用例</text>
+
+  <ellipse cx="1150" cy="235" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1150" y="240" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造用例</text>
+
+  <ellipse cx="1150" cy="285" rx="70" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1150" y="290" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Session 会话域</text>
+</svg>

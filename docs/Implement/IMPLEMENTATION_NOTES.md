@@ -1,5 +1,21 @@
 # Implementer 实现交接记录
 
+## 最大模型轮次调整
+
+- 将运行配置、`.env` 模板和 `AgentLoop` 直接构造时的默认最大模型轮次统一从 20 调整为 50。
+- 增加配置默认值回归测试，确保环境变量缺省和直接构造两条入口保持一致。
+
+## Session 树形会话与 Git Commit 关联实施记录
+
+- 存储落点：`Database` 新增 `sessions`、自引用 `messages` 和唯一 `task_commits` 表；消息父节点、活动叶子和 Task 外键由 SQLite 与仓储层共同校验。删除 Session 使用级联事务删除消息，但保留 Task、工具、审批、Commit 和审计记录。
+- 兼容策略：启动时识别缺少树字段的旧线性 `messages` 表，暂存后按原 `rowid` 和 Session 顺序重建父链；当前基线没有既有 Session 表，因此新安装直接创建空树。
+- 编排落点：`memory/session.py` 负责当前活动路径、分支切换、user/assistant 可见消息顺序、失败时保留 user 消息、首个成功问答标题生成和 Task 关联；`AgentLoop` 只接收已准备好的可见历史，不选择 Session。
+- CLI 落点：普通请求沿用本机活动 Session，新增 `session new/list/history/branches/continue-from/commit/switch/delete`；删除要求 `--confirm` 或精确输入 `DELETE_SESSION`。
+- Git 边界：`git.py` 仅执行 `git rev-parse --verify HEAD^{commit}` 和 `git status --porcelain=v1 --untracked-files=all`；工作区有未提交变更、Git 不可读或关联保存失败时返回“未记录版本”，不执行 add、commit、stash、checkout、reset、push 等写操作。
+- 标题调用失败、超时或空响应只保留默认标题，不改变已成功 Task、消息或分支；标题输入只包含首轮可见 user/assistant 内容。
+- 本次相对计划的实现偏差：采用 `SessionService`、`SessionRepository` 和 `CommitRepository` 作为职责落点，命令名按计划示例实现；未引入通用版本控制抽象、后台队列或自动工程恢复。
+- 验证结果：Session 专项测试 8 项通过；全量 `pytest` 为 174 passed、2 skipped，`ruff check .` 和 `python -m compileall src` 通过。
+
 ## 已实现范围
 
 - 建立 Python 3.12 工程骨架和 `pyproject.toml`。
