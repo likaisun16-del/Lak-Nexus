@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="400" viewBox="0 0 1450 400">
+  <rect width="1450" height="400" fill="white"/>
+  <text x="725" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Microsoft YaHei">立凯中枢 - 模型轮次与 Bash 过程可见性用例图</text>
+
+  <!-- Actor W=180 -->
+  <circle cx="60" cy="162" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="180" x2="60" y2="220" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="198" x2="85" y2="198" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="220" x2="38" y2="250" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="220" x2="82" y2="250" stroke="#333" stroke-width="2"/>
+  <text x="60" y="270" text-anchor="middle" font-size="14" fill="#222" font-family="Microsoft YaHei">本地用户</text>
+
+  <!-- 域 cy=180（一级用例 y=100/180/260 的中位数） -->
+  <ellipse cx="200" cy="180" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="185" text-anchor="middle" font-size="13" fill="white" font-family="Microsoft YaHei">执行过程展示域</text>
+  <line x1="78" y1="180" x2="110" y2="180" stroke="#aaaaaa" stroke-width="1.2"/>
+  <line x1="85" y1="198" x2="110" y2="180" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 域 -> 一级 -->
+  <line x1="290" y1="180" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="180" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="180" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Microsoft YaHei">查看 Bash 实际指令</text>
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Microsoft YaHei">查看 Bash 执行结果</text>
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Microsoft YaHei">查看模型调用轮次</text>
+
+  <!-- 一级 -> 二级 -->
+  <line x1="560" y1="100" x2="600" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="260" x2="600" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="97" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">脱敏并安全展示</text>
+  <text x="700" y="113" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">单行/多行指令</text>
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="177" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">显示退出码、耗时</text>
+  <text x="700" y="193" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">stdout/stderr 预览</text>
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="257" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">模型调用前显示</text>
+  <text x="700" y="273" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">任务内 N/max 轮次</text>
+
+  <!-- 二级 -> 三级 -->
+  <line x1="800" y1="100" x2="840" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="800" y1="180" x2="840" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="800" y1="260" x2="840" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <ellipse cx="940" cy="100" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="940" y="97" text-anchor="middle" font-size="13" fill="#222" font-family="Microsoft YaHei">审计继续只保存</text>
+  <text x="940" y="113" text-anchor="middle" font-size="13" fill="#222" font-family="Microsoft YaHei">hash 与摘要</text>
+  <ellipse cx="940" cy="180" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="940" y="177" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">结果有界截断</text>
+  <text x="940" y="193" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">无输出明确提示</text>
+  <ellipse cx="940" cy="260" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="940" y="257" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">失败带轮次和脱敏原因</text>
+  <text x="940" y="273" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">不展示思维链与正文</text>
+
+  <!-- 图例 -->
+  <rect x="1100" y="72" width="280" height="220" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1240" y="102" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Microsoft YaHei">图例</text>
+  <ellipse cx="1190" cy="140" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1190" y="145" text-anchor="middle" font-size="12" fill="#222" font-family="Microsoft YaHei">已有用例</text>
+  <ellipse cx="1190" cy="190" rx="70" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1190" y="195" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Microsoft YaHei">新增用例</text>
+  <ellipse cx="1190" cy="240" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1190" y="245" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Microsoft YaHei">改造用例</text>
+
+  <text x="725" y="350" text-anchor="middle" font-size="13" fill="#42526e" font-family="Microsoft YaHei">用户看到“模型第几轮 → 调用什么工具 → 得到什么结果”，内部噪音与敏感正文继续隐藏</text>
+</svg>

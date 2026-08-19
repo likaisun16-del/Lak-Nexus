@@ -19,6 +19,7 @@ class ToolOutput:
     content: str
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    display_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def safe_argument_summary(tool_name: str, arguments: object) -> str:
@@ -66,6 +67,11 @@ class Tool:
         """返回过程展示摘要；默认不输出任何参数值。"""
 
         return safe_argument_summary(self.name, arguments)
+
+    def display_result(self, output: ToolOutput | None) -> dict[str, Any]:
+        """返回界面结果投影；默认不暴露工具结果正文或内部 metadata。"""
+
+        return {}
 
     def audit_arguments(self, arguments: object) -> str:
         """返回持久化参数摘要；默认只保存字段名和类型。"""

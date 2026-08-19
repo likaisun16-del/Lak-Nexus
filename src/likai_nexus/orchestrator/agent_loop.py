@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from ..errors import ConfigError, TaskAlreadyExistsError
 from ..executor.service import ToolExecutor
 from ..models.base import ModelBackend
 from ..safety.approval import ApprovalHandler, ApprovalRequest
-from ..safety.redaction import redact_text
+from ..safety.redaction import (
+    redact_text,
+    redact_value,
+    sanitize_terminal_text,
+    sanitize_terminal_value,
+)
 from ..safety.review_mode import ReviewMode, parse_review_mode
 from .events import EventSink, RuntimeEvent, emit_safely
 from .schemas import (
@@ -21,6 +27,7 @@ from .schemas import (
 
 _SYSTEM_PROMPT = """你是立凯中枢本地智能体。只能通过当前请求提供的工具完成工作：{tool_names}。
 当前审查模式是 {review_mode}：{mode_guidance}
+需要生成、复用或维护脚本时，默认将脚本保存到工作区内的 script/ 目录；Bash 仍从工作区根目录执行。
 工具返回错误时先理解具体报错点再决定是否调整。
 如果不需要工具，直接用简洁中文回答用户。"""
 
@@ -61,6 +68,8 @@ class AgentLoop:
         review_mode: ReviewMode | str | None = None,
         approvals: ApprovalHandler | None = None,
         event_sink: EventSink | None = None,
+        full_access_confirmed: bool = False,
+        on_full_access_confirmed: Callable[[], None] | None = None,
     ) -> None:
         self.backend = backend
         self.executor = executor
@@ -78,6 +87,8 @@ class AgentLoop:
         self.review_mode = executor_mode
         self.approvals = approvals if approvals is not None else executor.approvals
         self.event_sink = event_sink if event_sink is not None else executor.event_sink
+        self.full_access_confirmed = full_access_confirmed
+        self.on_full_access_confirmed = on_full_access_confirmed
 
     async def run(
         self,
@@ -91,7 +102,8 @@ class AgentLoop:
         if not request_text.strip():
             raise ValueError("任务创建失败：request_text 不能为空")
         task_id = task_id or uuid.uuid4().hex
-        if self.review_mode is ReviewMode.FULL_ACCESS:
+        confirmation_source = "preference"
+        if self.review_mode is ReviewMode.FULL_ACCESS and not self.full_access_confirmed:
             confirmed = await self._confirm_full_access(task_id)
             if not confirmed:
                 return AgentResult(
@@ -99,11 +111,22 @@ class AgentLoop:
                     TaskStatus.CANCELLED,
                     error_message="任务未创建：完全访问模式未通过启动确认",
                 )
+            try:
+                if self.on_full_access_confirmed is not None:
+                    self.on_full_access_confirmed()
+            except Exception as exc:  # noqa: BLE001
+                message = redact_text(
+                    f"任务未创建：完全访问确认已通过，但本地偏好保存失败：{type(exc).__name__}: {exc}"
+                )
+                self._emit("task_finished", task_id, f"任务取消：{message}")
+                return AgentResult(task_id, TaskStatus.CANCELLED, error_message=message)
+            self.full_access_confirmed = True
+            confirmation_source = "human"
         if not self.task_store.create(task_id, request_text, self.review_mode):
             raise TaskAlreadyExistsError(f"任务创建失败：task_id 已存在：{task_id}")
         if self.review_mode is ReviewMode.FULL_ACCESS:
             try:
-                self.executor.record_mode_confirmation(task_id)
+                self.executor.record_mode_confirmation(task_id, confirmation_source)
             except Exception as exc:  # noqa: BLE001
                 message = redact_text(f"任务启动失败：完全访问确认审计失败：{type(exc).__name__}: {exc}")
                 self.task_store.set_status(
@@ -155,11 +178,20 @@ class AgentLoop:
         for turn_number in range(1, self.max_turns + 1):
             if cancel_event.is_set():
                 return self._cancel(task_id, turn_number - 1)
-            self._emit("model_started", task_id, f"模型调用开始：轮次 {turn_number}")
+            self._emit(
+                "model_started",
+                task_id,
+                f"模型调用开始：轮次 {turn_number}",
+                {
+                    "turn_number": turn_number,
+                    "max_turns": self.max_turns,
+                    "status": "started",
+                },
+            )
             try:
                 turn = await self.backend.complete(messages, self.executor.registry.specs(), cancel_event)
             except asyncio.CancelledError:
-                return self._cancel(task_id, turn_number - 1)
+                return self._cancel(task_id, turn_number)
             # Backend 边界统一记录模型调用失败，保留轮次和异常类型作为具体报错点。
             except Exception as exc:  # noqa: BLE001
                 message = redact_text(f"模型调用失败：{type(exc).__name__}: {exc}")
@@ -169,7 +201,17 @@ class AgentLoop:
                     error_type=type(exc).__name__,
                     error_message=message,
                 )
-                self._emit("model_failed", task_id, f"模型调用失败：轮次 {turn_number}，{message}")
+                self._emit(
+                    "model_failed",
+                    task_id,
+                    f"模型调用失败：轮次 {turn_number}，{message}",
+                    {
+                        "turn_number": turn_number,
+                        "max_turns": self.max_turns,
+                        "status": "failed",
+                        "reason": message,
+                    },
+                )
                 self._emit(
                     "task_finished",
                     task_id,
@@ -181,6 +223,12 @@ class AgentLoop:
                 "model_finished",
                 task_id,
                 f"模型调用结束：轮次 {turn_number}，工具调用数={len(turn.tool_calls)}",
+                {
+                    "turn_number": turn_number,
+                    "max_turns": self.max_turns,
+                    "status": "finished",
+                    "tool_call_count": len(turn.tool_calls),
+                },
             )
             messages.append(
                 ChatMessage(role="assistant", content=safe_content, tool_calls=turn.tool_calls)
@@ -272,7 +320,10 @@ class AgentLoop:
             ),
             confirmation_token="FULL-ACCESS",
         )
-        approved = await self.approvals.request(request)
+        try:
+            approved = await self.approvals.request(request)
+        except (EOFError, KeyboardInterrupt):
+            approved = False
         self._emit(
             "mode_confirmed" if approved else "mode_denied",
             task_id,
@@ -280,8 +331,25 @@ class AgentLoop:
         )
         return approved
 
-    def _emit(self, event_type: str, task_id: str, message: str) -> None:
-        emit_safely(self.event_sink, RuntimeEvent(event_type, task_id, redact_text(message)))
+    def _emit(
+        self,
+        event_type: str,
+        task_id: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        safe_metadata = (
+            redact_value(sanitize_terminal_value(metadata)) if metadata is not None else {}
+        )
+        emit_safely(
+            self.event_sink,
+            RuntimeEvent(
+                event_type,
+                task_id,
+                redact_text(sanitize_terminal_text(message)),
+                safe_metadata,
+            ),
+        )
 
     def _mode_guidance(self) -> str:
         if self.review_mode is ReviewMode.STRICT:

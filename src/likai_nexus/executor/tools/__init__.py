@@ -24,6 +24,7 @@ def build_builtin_tools(settings: Settings, review_mode: ReviewMode | str) -> tu
         allow_external=full_access,
         allow_sensitive=full_access,
         enforce_symlink_safety=not full_access,
+        protected_paths=() if full_access else (settings.data_root,),
     )
     policy = CommandPolicy(resolver, mode)
     # read 必须按最终模型消息预算生成游标，避免 ToolExecutor 二次截断正文后跳过字节。

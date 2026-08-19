@@ -11,7 +11,14 @@ from ..errors import ApprovalDeniedError, AuditError, ConfigError, NexusError
 from ..orchestrator.events import EventSink, NullEventSink, RuntimeEvent, emit_safely
 from ..orchestrator.schemas import ToolCall, ToolResult
 from ..safety.approval import ApprovalHandler, ApprovalRequest
-from ..safety.redaction import redact_text, redact_value, safe_audit_identifier, truncate_text
+from ..safety.redaction import (
+    redact_text,
+    redact_value,
+    safe_audit_identifier,
+    sanitize_terminal_text,
+    sanitize_terminal_value,
+    truncate_text,
+)
 from ..safety.review_mode import ReviewMode, parse_review_mode
 from ..storage.audit_repository import AuditRepository
 from .base import Tool, ToolOutput, safe_argument_summary
@@ -20,6 +27,9 @@ from .registry import ToolRegistry
 
 class ToolExecutor:
     """唯一允许 Agent Loop 调用具体工具的服务。"""
+
+    _DISPLAY_COMMAND_BYTES = 4 * 1024
+    _DISPLAY_RESULT_BYTES = 1 * 1024
 
     def __init__(
         self,
@@ -60,7 +70,12 @@ class ToolExecutor:
         self._emit(
             "tool_started",
             task_id,
-            f"工具开始：{tool_label}，{self._display_arguments(tool, tool_call.arguments)}",
+            f"工具开始：{tool_label}",
+            {
+                "tool_name": tool_label,
+                "status": "started",
+                "invocation": self._display_arguments(tool, tool_call.arguments),
+            },
         )
         if tool is None:
             names = ", ".join(spec.name for spec in self.registry.specs()) or "无"
@@ -85,7 +100,17 @@ class ToolExecutor:
                     error_message="未知工具审计失败：任务已终止",
                 )
                 raise
-            self._emit("tool_failed", task_id, message)
+            self._emit(
+                "tool_failed",
+                task_id,
+                message,
+                {
+                    "tool_name": tool_label,
+                    "status": "failed",
+                    "elapsed_ms": self._elapsed_ms(started_at),
+                    "reason": message,
+                },
+            )
             return ToolResult(
                 tool_call.id,
                 self._model_content(
@@ -157,11 +182,20 @@ class ToolExecutor:
                 error_type="ToolExecutionError" if output.is_error else None,
                 error_message=summary if output.is_error else None,
             )
-            status = "failed" if output.is_error else "success"
+            status = self._tool_status(output)
+            event_metadata = self._tool_event_metadata(
+                tool,
+                output,
+                status,
+                self._elapsed_ms(started_at),
+                summary,
+            )
             self._emit(
-                "tool_failed" if output.is_error else "tool_finished",
+                self._tool_event_type(status),
                 task_id,
-                f"工具{status}：{tool.name}，耗时={self._elapsed_ms(started_at)}ms，{summary}",
+                f"工具{self._status_label(status)}：{tool.name}，"
+                f"耗时={self._elapsed_ms(started_at)}ms，{summary}",
+                event_metadata,
             )
             return result
         except asyncio.CancelledError:
@@ -177,6 +211,13 @@ class ToolExecutor:
                 task_id,
                 f"工具取消：{tool.name}，耗时={self._elapsed_ms(started_at)}ms，"
                 "任务收到取消信号",
+                self._tool_event_metadata(
+                    tool,
+                    None,
+                    "cancelled",
+                    self._elapsed_ms(started_at),
+                    "任务收到取消信号",
+                ),
             )
             raise
         except AuditError as exc:
@@ -192,6 +233,13 @@ class ToolExecutor:
                 task_id,
                 f"工具审计失败：{tool.name}，耗时={self._elapsed_ms(started_at)}ms，"
                 f"原因={type(exc).__name__}",
+                self._tool_event_metadata(
+                    tool,
+                    None,
+                    "failed",
+                    self._elapsed_ms(started_at),
+                    f"审计失败：{type(exc).__name__}",
+                ),
             )
             raise
         # 工具边界统一记录未知异常，保留工具名和调用 ID 以便审计定位。
@@ -211,6 +259,13 @@ class ToolExecutor:
                 task_id,
                 f"工具{'拒绝' if rejected else '失败'}：{tool.name}，"
                 f"耗时={self._elapsed_ms(started_at)}ms，{message}",
+                self._tool_event_metadata(
+                    tool,
+                    None,
+                    "rejected" if rejected else "failed",
+                    self._elapsed_ms(started_at),
+                    message,
+                ),
             )
             return ToolResult(
                 tool_call.id,
@@ -444,12 +499,108 @@ class ToolExecutor:
 
     @staticmethod
     def _display_arguments(tool: Tool | None, arguments: object) -> str:
-        if tool is None:
-            return redact_text(safe_argument_summary("unknown", arguments))
         try:
-            return redact_text(tool.display_arguments(arguments))
+            if tool is None:
+                value = safe_argument_summary("unknown", arguments)
+            else:
+                value = tool.display_arguments(arguments)
+            return ToolExecutor._bounded_display_text(
+                value,
+                ToolExecutor._DISPLAY_COMMAND_BYTES,
+                "\n[指令已截断]",
+            )
         except Exception:  # noqa: BLE001
-            return redact_text(safe_argument_summary(tool.name, arguments))
+            # 调用展示是旁路能力；任何第三方值转换或后处理异常都不能阻止实际工具执行。
+            return "[指令展示不可用]"
+
+    @staticmethod
+    def _display_result(tool: Tool | None, output: ToolOutput | None) -> dict[str, Any]:
+        try:
+            if tool is None:
+                return {}
+            value = tool.display_result(output)
+            if not isinstance(value, dict):
+                return {}
+            safe_value = redact_value(sanitize_terminal_value(value))
+            if not isinstance(safe_value, dict):
+                return {}
+            for key in ("stdout", "stderr"):
+                if isinstance(safe_value.get(key), str):
+                    safe_value[key] = ToolExecutor._bounded_display_text(
+                        safe_value[key],
+                        ToolExecutor._DISPLAY_RESULT_BYTES,
+                        "\n[输出预览已截断]",
+                    )
+            return safe_value
+        except Exception:  # noqa: BLE001
+            # 展示投影是旁路能力；任何第三方结构、字符串或脱敏异常都只能降级为空展示。
+            return {}
+
+    @classmethod
+    def _tool_event_metadata(
+        cls,
+        tool: Tool | None,
+        output: ToolOutput | None,
+        status: str,
+        elapsed_ms: int,
+        reason: str | None,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "tool_name": tool.name if tool is not None else "unknown",
+            "status": status,
+            "elapsed_ms": elapsed_ms,
+        }
+        if reason:
+            metadata["reason"] = cls._short_reason(reason)
+        result = cls._display_result(tool, output)
+        if result:
+            metadata["result"] = result
+            for key in ("exit_code", "truncated"):
+                if key in result:
+                    metadata[key] = result[key]
+        return metadata
+
+    @staticmethod
+    def _tool_status(output: ToolOutput) -> str:
+        if output.metadata.get("cancelled"):
+            return "cancelled"
+        if output.metadata.get("timed_out"):
+            return "timeout"
+        return "failed" if output.is_error else "success"
+
+    @staticmethod
+    def _tool_event_type(status: str) -> str:
+        return {
+            "success": "tool_finished",
+            "timeout": "tool_timed_out",
+            "cancelled": "tool_cancelled",
+            "rejected": "tool_rejected",
+        }.get(status, "tool_failed")
+
+    @staticmethod
+    def _status_label(status: str) -> str:
+        return {
+            "success": "成功",
+            "failed": "失败",
+            "timeout": "超时",
+            "cancelled": "取消",
+            "rejected": "拒绝",
+        }.get(status, status)
+
+    @staticmethod
+    def _short_reason(reason: str) -> str:
+        safe_reason = redact_text(sanitize_terminal_text(reason))
+        first_line = safe_reason.splitlines()[0] if safe_reason.splitlines() else safe_reason
+        return truncate_text(first_line, 240)[0]
+
+    @staticmethod
+    def _bounded_display_text(value: str, limit: int, marker: str) -> str:
+        safe_value = redact_text(sanitize_terminal_text(str(value)))
+        marker_bytes = len(marker.encode("utf-8"))
+        if marker_bytes >= limit:
+            return truncate_text(marker, limit)[0]
+        bounded, truncated = truncate_text(safe_value, limit - marker_bytes)
+        return bounded + marker if truncated else bounded
 
     @staticmethod
     def _tool_label(tool_name: str, tool: Tool | None) -> str:
@@ -464,13 +615,15 @@ class ToolExecutor:
 
         return self._tool_label(tool_name, self.registry.get(tool_name))
 
-    def record_mode_confirmation(self, task_id: str) -> None:
-        """在 full-access 启动确认后记录任务级人工确认。"""
+    def record_mode_confirmation(self, task_id: str, decision_source: str = "human") -> None:
+        """记录 full-access 的首次人工确认或本地偏好沿用。"""
 
         request = ApprovalRequest(
             action_type="full_access_session",
             summary="任务级完全访问确认",
-            audit_summary=f"任务审查模式={self.review_mode.value}，启动确认已通过",
+            audit_summary=(
+                f"任务审查模式={self.review_mode.value}，启动确认来源={decision_source}"
+            ),
         )
         try:
             self.audit_repository.record_approval(
@@ -479,15 +632,32 @@ class ToolExecutor:
                 request.action_type,
                 request.audit_summary,
                 True,
-                "human",
+                decision_source,
             )
         except Exception as exc:
             raise AuditError(
                 f"完全访问确认审计写入失败：任务 {task_id}，原因：{type(exc).__name__}"
             ) from exc
 
-    def _emit(self, event_type: str, task_id: str, message: str) -> None:
-        emit_safely(self.event_sink, RuntimeEvent(event_type, task_id, redact_text(message)))
+    def _emit(
+        self,
+        event_type: str,
+        task_id: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        safe_metadata = (
+            redact_value(sanitize_terminal_value(metadata)) if metadata is not None else {}
+        )
+        emit_safely(
+            self.event_sink,
+            RuntimeEvent(
+                event_type,
+                task_id,
+                redact_text(sanitize_terminal_text(message)),
+                safe_metadata,
+            ),
+        )
 
     @staticmethod
     def _elapsed_ms(started_at: float) -> int:

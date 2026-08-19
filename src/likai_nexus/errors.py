@@ -9,6 +9,10 @@ class ConfigError(NexusError):
     """配置缺失或配置值无效。"""
 
 
+class PreferenceError(ConfigError):
+    """本地偏好读取或保存失败。"""
+
+
 class ValidationError(NexusError):
     """工具参数不符合契约。"""
 

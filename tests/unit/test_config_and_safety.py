@@ -66,6 +66,30 @@ def test_config_rejects_non_directory_workspace(tmp_path: Path) -> None:
         Settings(workspace_root=file_path)
 
 
+def test_config_uses_project_root_for_default_and_relative_database(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    default_settings = Settings(workspace_root=workspace, project_root=tmp_path)
+    relative_settings = Settings(
+        workspace_root=workspace,
+        project_root=tmp_path,
+        database_path=Path("data/custom.sqlite3"),
+    )
+
+    assert default_settings.database_path == tmp_path / "data" / "likai_nexus.db"
+    assert relative_settings.database_path == tmp_path / "data" / "custom.sqlite3"
+
+
+def test_config_rejects_explicit_database_inside_workspace(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="DATABASE_PATH.*WORKSPACE_ROOT"):
+        Settings(
+            workspace_root=tmp_path,
+            project_root=tmp_path,
+            database_path=tmp_path / "database.sqlite3",
+        )
+
+
 def test_config_rejects_read_budget_that_cannot_advance_cursor(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="MAX_READ_BYTES 至少为 4"):
         Settings(workspace_root=tmp_path, max_read_bytes=3)
@@ -80,6 +104,16 @@ def test_workspace_rejects_parent_escape(tmp_path: Path) -> None:
     resolver = WorkspacePathResolver(tmp_path)
     with pytest.raises(PathAccessError, match="工作区外"):
         resolver.resolve("../outside.txt")
+
+
+def test_workspace_rejects_application_data_directory(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "private.db").write_text("database", encoding="utf-8")
+    resolver = WorkspacePathResolver(tmp_path, protected_paths=(data,))
+
+    with pytest.raises(PathAccessError, match="应用数据目录"):
+        resolver.resolve("data/private.db", require_exists=True)
 
 
 def test_workspace_rejects_symlink_escape(tmp_path: Path) -> None:
@@ -175,6 +209,17 @@ def test_command_policy_protects_recursive_rg_root() -> None:
     assert "!**/.env*" in decision.argv
     assert "!**/.ssh/**" in decision.argv
     assert "!**/private/**" in decision.argv
+
+
+def test_command_policy_excludes_protected_application_data() -> None:
+    from likai_nexus.safety.paths import WorkspacePathResolver
+
+    resolver = WorkspacePathResolver(
+        Path.cwd(), protected_paths=(Path.cwd() / "data",)
+    )
+    decision = CommandPolicy(resolver).check("rg SENTINEL .")
+
+    assert "!data/**" in decision.argv
 
 
 @pytest.mark.parametrize("command", ["rg --files -g '*.py'", "rg --files *.py", "pwd $PWD"])

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560">
+  <rect width="1280" height="560" fill="white"/>
+  <text x="640" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Microsoft YaHei">立凯中枢 - CLI 易用性与目录调整用例图</text>
+
+  <!-- Actor：W=220 -->
+  <circle cx="60" cy="202" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="220" x2="60" y2="260" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="238" x2="85" y2="238" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="260" x2="38" y2="290" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="260" x2="82" y2="290" stroke="#333" stroke-width="2"/>
+  <text x="60" y="310" text-anchor="middle" font-size="14" fill="#222" font-family="Microsoft YaHei">本地用户</text>
+
+  <!-- 域节点：一级用例 y=100/180/260/340，中位数=220 -->
+  <ellipse cx="200" cy="220" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="225" text-anchor="middle" font-size="13" fill="white" font-family="Microsoft YaHei">CLI 使用体验域</text>
+  <line x1="78" y1="220" x2="110" y2="220" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <!-- Actor -> 域 -->
+  <line x1="85" y1="238" x2="110" y2="220" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 域 -> 一级 -->
+  <line x1="290" y1="220" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="220" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="220" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="220" x2="360" y2="340" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 一级用例 -->
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Microsoft YaHei">记住完全访问模式</text>
+
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="185" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Microsoft YaHei">查看精简执行过程</text>
+
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="265" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">使用默认 script 目录</text>
+
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="345" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Microsoft YaHei">将运行数据移出工作区</text>
+
+  <!-- 一级 -> 二级 -->
+  <line x1="560" y1="100" x2="600" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="180" x2="600" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="260" x2="600" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="560" y1="340" x2="600" y2="340" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 二级用例 -->
+  <ellipse cx="700" cy="100" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="97" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">后续任务</text>
+  <text x="700" y="113" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">不再重复确认</text>
+
+  <ellipse cx="700" cy="180" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="700" y="177" text-anchor="middle" font-size="13" fill="#222" font-family="Microsoft YaHei">保留完整事件</text>
+  <text x="700" y="193" text-anchor="middle" font-size="13" fill="#222" font-family="Microsoft YaHei">与审计</text>
+
+  <ellipse cx="700" cy="260" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="265" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">启动时幂等创建</text>
+
+  <ellipse cx="700" cy="340" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="337" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">安全迁移旧数据库</text>
+  <text x="700" y="353" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Microsoft YaHei">到根目录 data</text>
+
+  <!-- 图例，只列实际状态 -->
+  <rect x="910" y="72" width="300" height="220" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1060" y="102" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Microsoft YaHei">图例</text>
+  <ellipse cx="1010" cy="140" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1010" y="145" text-anchor="middle" font-size="12" fill="#222" font-family="Microsoft YaHei">已有用例</text>
+  <ellipse cx="1010" cy="190" rx="70" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1010" y="195" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Microsoft YaHei">新增用例</text>
+  <ellipse cx="1010" cy="240" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1010" y="245" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Microsoft YaHei">改造用例</text>
+
+  <text x="640" y="510" text-anchor="middle" font-size="13" fill="#42526e" font-family="Microsoft YaHei">完全访问仅首次确认；默认 UI 精简，但内部事件、安全检查与审计继续保留</text>
+</svg>

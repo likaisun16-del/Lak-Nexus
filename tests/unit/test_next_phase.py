@@ -102,6 +102,75 @@ class MetadataTool(EchoTool):
         return {"custom_cursor": "0:1", "custom_complete": True}
 
 
+class DisplayProjectionTool(Tool):
+    """测试第三方展示投影异常不会改变已经成功的工具结果。"""
+
+    name = "display_projection"
+    spec = ToolSpec(
+        name=name,
+        description="返回成功结果并模拟展示投影故障。",
+        input_schema={"type": "object", "additionalProperties": False},
+    )
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        self.display_calls = 0
+        self.execute_calls = 0
+
+    def validate(self, arguments: object) -> dict:
+        return {}
+
+    def check_safety(self, arguments: dict) -> None:
+        return
+
+    def approval_request(self, arguments: dict):
+        return None
+
+    async def execute(self, arguments: dict, cancel_event=None) -> ToolOutput:
+        self.execute_calls += 1
+        return ToolOutput("工具成功正文")
+
+    def display_arguments(self, arguments: object) -> str:
+        if self.mode == "argument-raise":
+            raise RuntimeError("指令展示故障")
+        if self.mode == "argument-weird":
+            return ExplodingString()
+        if self.mode == "argument-deep":
+            value: dict = {}
+            cursor = value
+            for _ in range(1500):
+                nested: dict = {}
+                cursor["nested"] = nested
+                cursor = nested
+            return value
+        return super().display_arguments(arguments)
+
+    def display_result(self, output: ToolOutput | None) -> dict:
+        self.display_calls += 1
+        if self.mode == "raise":
+            raise RuntimeError("展示投影故障")
+        if self.mode == "weird":
+            return {"stdout": ExplodingString()}
+        if self.mode == "deep":
+            value: dict = {"stdout": "工具成功正文"}
+            cursor = value
+            for _ in range(25):
+                nested: dict = {}
+                cursor["nested"] = nested
+                cursor = nested
+            return value
+        cycle: dict = {}
+        cycle["self"] = cycle
+        return cycle
+
+
+class ExplodingString:
+    """测试展示投影返回字符串形态对象时不会执行其不安全的转换。"""
+
+    def __str__(self) -> str:
+        raise RuntimeError("异常字符串对象")
+
+
 class MismatchedTool(EchoTool):
     """测试工具，故意制造 name/spec 不一致。"""
 
@@ -126,7 +195,8 @@ def build_components(tmp_path: Path, mode: ReviewMode, approvals: StaticApproval
 
     settings = Settings(
         workspace_root=tmp_path,
-        database_path=tmp_path / f"{mode.value}.sqlite3",
+        project_root=tmp_path,
+        database_path=tmp_path.parent / f"{tmp_path.name}-{mode.value}.sqlite3",
         bash_path=Path(BashTool.discover_bash_path())
         if BashTool.discover_bash_path()
         else None,
@@ -170,6 +240,16 @@ def test_dynamic_tool_is_discovered_and_audited_without_core_name_branch(tmp_pat
     assert "read" not in backend.messages[0][0].content
     assert audit.list_tool_calls("dynamic")[0]["tool_name"] == "echo"
     assert "TEST_SECRET" not in str(audit.list_tool_calls("dynamic"))
+
+
+def test_agent_prompt_mentions_default_script_directory(runtime) -> None:
+    _, _, tasks, _, _, executor = runtime
+    backend = FakeModelBackend([AssistantTurn("脚本任务完成")])
+
+    result = run(AgentLoop(backend, executor, tasks).run("生成脚本", task_id="script-prompt"))
+
+    assert result.status is TaskStatus.SUCCESS
+    assert "script/" in backend.messages[0][0].content
 
 
 def test_untrusted_tool_call_fields_are_safe_before_audit_persistence(tmp_path: Path) -> None:
@@ -281,7 +361,7 @@ def test_audit_start_failure_does_not_echo_untrusted_tool_fields(tmp_path: Path)
     )
 
     result = run(
-        AgentLoop(backend, executor, tasks, event_sink=sink).run(
+        AgentLoop(backend, executor, tasks, max_turns=5, event_sink=sink).run(
             "审计启动失败", task_id="audit-start-failure"
         )
     )
@@ -531,7 +611,7 @@ def test_process_events_are_structured_and_display_failure_isolated(tmp_path: Pa
     )
 
     result = run(
-        AgentLoop(backend, executor, tasks, event_sink=sink).run(
+        AgentLoop(backend, executor, tasks, max_turns=5, event_sink=sink).run(
             "展示过程", task_id="events"
         )
     )
@@ -550,6 +630,11 @@ def test_process_events_are_structured_and_display_failure_isolated(tmp_path: Pa
         "task_finished",
     }.issubset(event_types)
     assert all(event.task_id == "events" for event in sink.events)
+    model_started = [event for event in sink.events if event.event_type == "model_started"]
+    assert [event.metadata["turn_number"] for event in model_started] == [1, 2]
+    assert all(event.metadata["max_turns"] == 5 for event in model_started)
+    echo_finished = next(event for event in sink.events if event.event_type == "tool_finished")
+    assert "result" not in echo_finished.metadata
 
     failing_sink = RecordingSink(fail=True)
     failing_executor = ToolExecutor(
@@ -564,6 +649,92 @@ def test_process_events_are_structured_and_display_failure_isolated(tmp_path: Pa
     assert result.status is TaskStatus.SUCCESS
 
 
+@pytest.mark.parametrize("mode", ["raise", "cycle", "weird", "deep"])
+def test_display_projection_failure_cannot_change_successful_tool(tmp_path: Path, mode: str) -> None:
+    database = Database(tmp_path / f"display-{mode}.sqlite3")
+    database.initialize()
+    tasks = TaskRepository(database)
+    audit = AuditRepository(database)
+    tool = DisplayProjectionTool(mode)
+    executor = ToolExecutor(
+        ToolRegistry((tool,), model_message_budget=256),
+        StaticApprovalHandler(True),
+        audit,
+    )
+    tasks.create(f"display-{mode}", "展示投影故障测试", ReviewMode.STRICT)
+
+    result = run(
+        executor.execute(
+            f"display-{mode}", ToolCall(f"display-call-{mode}", tool.name, {})
+        )
+    )
+
+    assert not result.is_error
+    assert tool.execute_calls == 1
+    assert tool.display_calls == 1
+    assert audit.list_tool_calls(f"display-{mode}")[0]["status"] == "success"
+
+
+@pytest.mark.parametrize("mode", ["argument-raise", "argument-weird", "argument-deep"])
+def test_display_arguments_failure_cannot_prevent_successful_tool(
+    tmp_path: Path, mode: str
+) -> None:
+    database = Database(tmp_path / f"display-arguments-{mode}.sqlite3")
+    database.initialize()
+    tasks = TaskRepository(database)
+    audit = AuditRepository(database)
+    tool = DisplayProjectionTool(mode)
+    executor = ToolExecutor(
+        ToolRegistry((tool,), model_message_budget=256),
+        StaticApprovalHandler(True),
+        audit,
+    )
+    task_id = f"display-arguments-{mode}"
+    tasks.create(task_id, "调用展示故障测试", ReviewMode.STRICT)
+
+    result = run(executor.execute(task_id, ToolCall(f"call-{mode}", tool.name, {})))
+
+    assert not result.is_error
+    assert tool.execute_calls == 1
+    assert audit.list_tool_calls(task_id)[0]["status"] == "success"
+
+
+@pytest.mark.skipif(BashTool.discover_bash_path() is None, reason="当前环境没有可用 Git Bash")
+def test_bash_events_expose_safe_command_and_result_projection(tmp_path: Path) -> None:
+    settings, tasks, audit, executor = build_components(
+        tmp_path, ReviewMode.FULL_ACCESS, StaticApprovalHandler(True)
+    )
+    sink = RecordingSink()
+    executor.event_sink = sink
+    tasks.create("bash-display", "展示 Bash 结果", ReviewMode.FULL_ACCESS)
+
+    result = run(
+        executor.execute(
+            "bash-display",
+            ToolCall(
+                "bash-display-call",
+                "bash",
+                {"command": "printf 'stdout\\n'; printf 'stderr\\n' >&2", "timeout_seconds": 3},
+            ),
+        )
+    )
+
+    assert not result.is_error
+    started = next(event for event in sink.events if event.event_type == "tool_started")
+    assert "printf 'stdout" in started.metadata["invocation"]
+    assert "超时：3 秒" in started.metadata["invocation"]
+    assert "sha256" not in started.metadata["invocation"]
+    finished = next(event for event in sink.events if event.event_type == "tool_finished")
+    display = finished.metadata["result"]
+    assert display["stdout"] == "stdout\n"
+    assert display["stderr"] == "stderr\n"
+    assert display["exit_code"] == 0
+    assert display["truncated"] is False
+    assert "stdout" not in str(audit.list_tool_calls("bash-display"))
+    assert "stderr" not in str(audit.list_tool_calls("bash-display"))
+    assert settings.workspace_root.exists()
+
+
 def test_rejected_and_cancelled_tools_have_explicit_terminal_events(tmp_path: Path) -> None:
     database = Database(tmp_path / "terminal-events.sqlite3")
     database.initialize()
@@ -576,7 +747,8 @@ def test_rejected_and_cancelled_tools_have_explicit_terminal_events(tmp_path: Pa
             build_builtin_tools(
                 Settings(
                     workspace_root=tmp_path,
-                    database_path=tmp_path / "terminal-events.sqlite3",
+                    project_root=tmp_path,
+                    database_path=tmp_path.parent / f"{tmp_path.name}-terminal-events.sqlite3",
                     bash_path=None,
                 ),
                 ReviewMode.STRICT,

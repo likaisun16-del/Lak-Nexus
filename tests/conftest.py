@@ -25,7 +25,8 @@ def settings(tmp_path: Path) -> Settings:
     bash = BashTool.discover_bash_path()
     return Settings(
         workspace_root=tmp_path,
-        database_path=tmp_path / "audit.sqlite3",
+        project_root=tmp_path,
+        database_path=tmp_path.parent / f"{tmp_path.name}-audit.sqlite3",
         bash_path=Path(bash) if bash else None,
         max_output_bytes=256,
         max_read_lines=20,

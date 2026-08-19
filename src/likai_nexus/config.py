@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import ConfigError
@@ -76,6 +76,7 @@ class Settings:
     """所有运行组件使用的不可变配置。"""
 
     workspace_root: Path
+    project_root: Path | None = None
     database_path: Path | None = None
     bash_path: Path | None = None
     default_bash_timeout_seconds: int = 30
@@ -88,6 +89,7 @@ class Settings:
     api_key: str | None = None
     model: str = "gpt-4o-mini"
     api_base_url: str = "https://api.openai.com/v1"
+    _use_default_database: bool = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         root = Path(self.workspace_root).expanduser().resolve(strict=False)
@@ -95,11 +97,27 @@ class Settings:
             raise ConfigError(f"配置错误：WORKSPACE_ROOT 不是已存在的目录：{root}")
         object.__setattr__(self, "workspace_root", root)
 
-        database = self.database_path or root / ".likai_nexus" / "tasks.db"
+        project = Path(self.project_root or Path.cwd()).expanduser().resolve(strict=False)
+        if not project.exists() or not project.is_dir():
+            raise ConfigError(f"配置错误：项目根目录不是已存在的目录：{project}")
+        object.__setattr__(self, "project_root", project)
+
+        database_explicit = self.database_path is not None
+        database = self.database_path or project / "data" / "likai_nexus.db"
         database = Path(database).expanduser()
         if not database.is_absolute():
-            database = root / database
-        object.__setattr__(self, "database_path", database.resolve(strict=False))
+            database = project / database
+        database = database.resolve(strict=False)
+        object.__setattr__(self, "database_path", database)
+        canonical_database = (project / "data" / "likai_nexus.db").resolve(strict=False)
+        use_default_database = not database_explicit or database == canonical_database
+        object.__setattr__(self, "_use_default_database", use_default_database)
+
+        if database_explicit and self._is_within(database, root):
+            raise ConfigError(
+                "配置错误：显式 DATABASE_PATH 不能位于 WORKSPACE_ROOT 内部，"
+                f"当前路径为 {database}；请将应用数据放到项目根目录 data/"
+            )
 
         if self.default_bash_timeout_seconds > self.max_bash_timeout_seconds:
             raise ConfigError(
@@ -130,8 +148,9 @@ class Settings:
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
         """先加载当前目录 .env，再用进程环境变量覆盖，并给出具体缺失项。"""
 
+        project_root = Path.cwd().resolve(strict=False)
         if environ is None:
-            values = _load_dotenv(Path.cwd() / ".env")
+            values = _load_dotenv(project_root / ".env")
             values.update(os.environ)
         else:
             values = dict(environ)
@@ -153,6 +172,7 @@ class Settings:
         )
         return cls(
             workspace_root=Path(workspace_value),
+            project_root=project_root,
             database_path=database,
             bash_path=bash_path,
             default_bash_timeout_seconds=default_timeout,
@@ -174,3 +194,43 @@ class Settings:
             model=values.get("MODEL", "gpt-4o-mini"),
             api_base_url=values.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         )
+
+    @property
+    def data_root(self) -> Path:
+        """项目根目录下保存数据库和本地偏好的应用数据目录。"""
+
+        return self.project_root / "data"
+
+    @property
+    def preference_path(self) -> Path:
+        """本地审查模式偏好文件路径。"""
+
+        return self.data_root / "preferences.json"
+
+    @property
+    def script_root(self) -> Path:
+        """工作区内供模型保存脚本的默认目录。"""
+
+        return self.workspace_root / "script"
+
+    def prepare_runtime(self) -> tuple[str, ...]:
+        """创建应用目录、默认脚本目录并执行安全的旧数据库迁移。"""
+
+        from .storage.app_data import AppDataManager
+
+        return AppDataManager(
+            self.project_root,
+            self.workspace_root,
+            self.database_path,
+            self._use_default_database,
+        ).prepare()
+
+    @staticmethod
+    def _is_within(path: Path, root: Path) -> bool:
+        try:
+            common = os.path.commonpath(
+                (os.path.normcase(str(path)), os.path.normcase(str(root)))
+            )
+            return common == os.path.normcase(str(root))
+        except ValueError:
+            return False

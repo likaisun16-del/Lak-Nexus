@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="840" viewBox="0 0 1500 840">
+  <rect width="1500" height="840" fill="white"/>
+  <text x="750" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CLI 易用性与持久化存储计划 - 实现审查用例图</text>
+  <text x="750" y="69" text-anchor="middle" font-size="13" fill="#666" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">前三组能力已实现；旧库迁移的“新空库 + 旧真实库”冲突路径仍有 P1 缺口</text>
+
+  <!-- 本地用户 Actor，W=200 -->
+  <circle cx="60" cy="182" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="200" x2="60" y2="240" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="218" x2="85" y2="218" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="240" x2="38" y2="270" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="240" x2="82" y2="270" stroke="#333" stroke-width="2"/>
+  <text x="60" y="290" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地用户</text>
+
+  <!-- CLI 易用性域，子用例 y=120/200/280，中位数=200 -->
+  <ellipse cx="200" cy="200" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="205" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CLI 易用性域</text>
+  <line x1="78" y1="200" x2="108" y2="200" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <ellipse cx="460" cy="120" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="117" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">持久化 full-access</text>
+  <text x="460" y="133" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">首次确认后复用</text>
+
+  <ellipse cx="460" cy="200" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="205" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">默认精简过程输出</text>
+
+  <ellipse cx="460" cy="280" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="285" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">workspace/script</text>
+
+  <line x1="290" y1="200" x2="360" y2="120" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="200" x2="360" y2="200" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="200" x2="360" y2="280" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="120" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="117" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">拒绝/EOF/保存失败</text>
+  <text x="700" y="133" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">均在任务创建前停止</text>
+  <line x1="560" y1="120" x2="600" y2="120" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="200" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="197" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">仅任务/工具事件</text>
+  <text x="700" y="213" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">--no-progress 仍兼容</text>
+  <line x1="560" y1="200" x2="600" y2="200" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="280" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="700" y="277" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">幂等创建并写入提示</text>
+  <text x="700" y="293" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Bash cwd 保持工作区根</text>
+  <line x1="560" y1="280" x2="600" y2="280" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 本地运行环境 Actor，W=560 -->
+  <circle cx="60" cy="542" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="560" x2="60" y2="600" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="578" x2="85" y2="578" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="600" x2="38" y2="630" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="600" x2="82" y2="630" stroke="#333" stroke-width="2"/>
+  <text x="60" y="650" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地运行环境</text>
+
+  <!-- 数据存储域，子用例 y=480/560/640，中位数=560 -->
+  <ellipse cx="200" cy="560" rx="90" ry="32" fill="#3a7bd5" stroke="#3a7bd5" stroke-width="1.5"/>
+  <text x="200" y="565" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">数据存储域</text>
+  <line x1="78" y1="560" x2="108" y2="560" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <ellipse cx="460" cy="480" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="477" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">项目根 data/</text>
+  <text x="460" y="493" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">数据库与偏好归位</text>
+
+  <ellipse cx="460" cy="560" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="565" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">旧 SQLite 数据迁移</text>
+
+  <ellipse cx="460" cy="640" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="637" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">strict / relaxed</text>
+  <text x="460" y="653" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">隔离项目 data/</text>
+
+  <line x1="290" y1="560" x2="360" y2="480" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="560" x2="360" y2="560" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="560" x2="360" y2="640" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="480" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="477" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">默认/相对路径正确</text>
+  <text x="700" y="493" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">显式工作区路径拒绝</text>
+  <line x1="560" y1="480" x2="600" y2="480" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="560" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="557" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">目标不存在</text>
+  <text x="700" y="573" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">校验、复制、备份通过</text>
+  <line x1="560" y1="560" x2="600" y2="560" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="640" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="637" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">目标已存在</text>
+  <text x="700" y="653" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">直接保留并搬走旧库</text>
+  <line x1="560" y1="560" x2="600" y2="640" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="700" cy="720" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="700" y="717" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">工具层保护 data/</text>
+  <text x="700" y="733" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">full-access 保持原能力</text>
+  <line x1="560" y1="640" x2="600" y2="720" stroke="#cccccc" stroke-width="1"/>
+
+  <ellipse cx="940" cy="640" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="940" y="637" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">空目标库压过真实旧库</text>
+  <text x="940" y="653" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">旧数据仅留在备份</text>
+  <line x1="800" y1="640" x2="840" y2="640" stroke="#cccccc" stroke-width="1"/>
+  <rect x="1026" y="610" width="54" height="24" rx="12" fill="#c0392b"/>
+  <text x="1053" y="627" text-anchor="middle" font-size="12" font-weight="bold" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">P1</text>
+
+  <!-- 图例：仅列本图实际使用状态与域 -->
+  <rect x="1110" y="88" width="300" height="250" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1260" y="118" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">图例</text>
+  <ellipse cx="1200" cy="153" rx="70" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1200" y="158" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新增用例</text>
+  <ellipse cx="1200" cy="203" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1200" y="208" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造用例</text>
+  <ellipse cx="1200" cy="253" rx="70" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1200" y="258" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CLI 易用性域</text>
+  <ellipse cx="1200" cy="303" rx="70" ry="22" fill="#3a7bd5" stroke="#3a7bd5" stroke-width="1.5"/>
+  <text x="1200" y="308" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">数据存储域</text>
+
+  <text x="1110" y="780" font-size="12" fill="#666" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">审查结果：除迁移冲突分支外，计划能力均有实现与测试证据。</text>
+</svg>

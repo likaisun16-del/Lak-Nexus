@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,6 +81,7 @@ class WorkspacePathResolver:
         allow_external: bool = False,
         allow_sensitive: bool = False,
         enforce_symlink_safety: bool = True,
+        protected_paths: Iterable[Path] = (),
     ) -> None:
         root = Path(workspace_root).expanduser().resolve(strict=False)
         if not root.exists() or not root.is_dir():
@@ -89,6 +91,9 @@ class WorkspacePathResolver:
         self.allow_external = allow_external
         self.allow_sensitive = allow_sensitive
         self.enforce_symlink_safety = enforce_symlink_safety
+        self.protected_paths = tuple(
+            Path(path).expanduser().resolve(strict=False) for path in protected_paths
+        )
 
     def resolve(
         self,
@@ -126,6 +131,8 @@ class WorkspacePathResolver:
                 )
         if reject_symlink and self.enforce_symlink_safety and self._contains_link(lexical_path):
             raise PathAccessError(f"路径访问被拒绝：不允许通过符号链接或目录连接访问：{raw_path!r}")
+        if not self.allow_external and self._is_protected(resolved):
+            raise PathAccessError(f"路径访问被拒绝：应用数据目录禁止工具访问：{resolved}")
         exists = resolved.exists()
         relative = self._relative(resolved)
         sensitive = self._is_sensitive_path(relative)
@@ -138,6 +145,18 @@ class WorkspacePathResolver:
         if file_only and exists and not resolved.is_file():
             raise ToolExecutionError(f"文件操作失败：目标不是普通文件：{relative}")
         return ResolvedPath(resolved, relative, exists, sensitive)
+
+    def protected_rg_globs(self) -> tuple[str, ...]:
+        """返回当前工作区内受保护目录的 ripgrep 排除规则。"""
+
+        globs: list[str] = []
+        for path in self.protected_paths:
+            try:
+                relative = path.relative_to(self.root).as_posix()
+            except ValueError:
+                continue
+            globs.extend((f"!{relative}", f"!{relative}/**"))
+        return tuple(globs)
 
     @staticmethod
     def _is_sensitive_path(path: object) -> bool:
@@ -156,6 +175,16 @@ class WorkspacePathResolver:
             if parent == current:
                 break
             current = parent
+        return False
+
+    def _is_protected(self, path: Path) -> bool:
+        for protected in self.protected_paths:
+            try:
+                common = os.path.commonpath((str(path), str(protected)))
+            except ValueError:
+                continue
+            if os.path.normcase(common) == os.path.normcase(str(protected)):
+                return True
         return False
 
     @staticmethod

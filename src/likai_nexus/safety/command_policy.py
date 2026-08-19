@@ -36,13 +36,18 @@ _DANGEROUS_GIT = {"clone", "fetch", "pull", "push", "remote", "submodule"}
 _SAFE_OPTION = {"-a", "-l", "-la", "-al", "-n", "-i", "-L", "--files", "--short"}
 
 
-def _rg_protected_args() -> tuple[str, ...]:
+def _rg_protected_args(resolver: WorkspacePathResolver | None = None) -> tuple[str, ...]:
     """生成不可由模型移除的大小写不敏感 ripgrep 保护参数。"""
 
+    extra_globs = resolver.protected_rg_globs() if resolver is not None else ()
     return (
         "--no-follow",
         "--glob-case-insensitive",
-        *(item for pattern in WorkspaceAccessPolicy.rg_exclude_globs() for item in ("--glob", pattern)),
+        *(
+            item
+            for pattern in (*WorkspaceAccessPolicy.rg_exclude_globs(), *extra_globs)
+            for item in ("--glob", pattern)
+        ),
     )
 
 
@@ -113,7 +118,7 @@ class CommandPolicy:
             return CommandDecision(False, executable, str(exc))
         argv = tuple(tokens)
         if executable == "rg":
-            argv += _rg_protected_args()
+            argv += _rg_protected_args(self.resolver)
         return CommandDecision(
             True,
             executable,

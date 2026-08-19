@@ -21,6 +21,7 @@ from ...safety.redaction import (
     content_sha256,
     is_sensitive_key,
     redact_text,
+    sanitize_terminal_text,
     truncate_text,
 )
 from ...safety.review_mode import ReviewMode
@@ -34,7 +35,10 @@ class BashTool(Tool):
     name = "bash"
     spec = ToolSpec(
         name=name,
-        description="按当前审查模式在 Git Bash 中执行受控命令或原始 Shell 脚本。",
+        description=(
+            "按当前审查模式在 Git Bash 中执行受控命令或原始 Shell 脚本；"
+            "需要保存脚本时默认使用工作区内的 script/ 目录。"
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -153,6 +157,12 @@ class BashTool(Tool):
             "timed_out": reason == "timeout",
             "cancelled": reason == "cancelled",
         }
+        display_metadata = {
+            "stdout": self._safe_output_text(stdout),
+            "stderr": self._safe_output_text(stderr),
+            "exit_code": process.returncode,
+            "truncated": truncated,
+        }
         if reason == "timeout":
             message = self._bounded_message(
                 f"Bash 执行超时：超过 {arguments['timeout_seconds']} 秒\n",
@@ -163,9 +173,15 @@ class BashTool(Tool):
                 message,
                 is_error=True,
                 metadata=metadata,
+                display_metadata=display_metadata,
             )
         if reason == "cancelled":
-            return ToolOutput("Bash 已取消：收到任务取消信号", is_error=True, metadata=metadata)
+            return ToolOutput(
+                "Bash 已取消：收到任务取消信号",
+                is_error=True,
+                metadata=metadata,
+                display_metadata=display_metadata,
+            )
         if process.returncode != 0:
             message = self._bounded_message(
                 f"Bash 执行失败：退出码 {process.returncode}\n",
@@ -176,22 +192,36 @@ class BashTool(Tool):
                 message,
                 is_error=True,
                 metadata=metadata,
+                display_metadata=display_metadata,
             )
         message = self._bounded_message(
             "Bash 执行成功：退出码 0\n",
             output,
             truncated,
         )
-        return ToolOutput(message, metadata=metadata)
+        return ToolOutput(message, metadata=metadata, display_metadata=display_metadata)
 
     def display_arguments(self, arguments: object) -> str:
         values = arguments if isinstance(arguments, dict) else {}
         command = values.get("command")
-        digest = content_sha256(command) if isinstance(command, str) else "?"
-        return (
-            f"bash 参数摘要：模式={self.policy.review_mode.value}，"
-            f"command sha256={digest}，超时={values.get('timeout_seconds', '?')} 秒"
-        )
+        if not isinstance(command, str):
+            return "bash 指令不可用：command 不是字符串"
+        lines = [command]
+        timeout = values.get("timeout_seconds")
+        if timeout is not None and timeout != self.settings.default_bash_timeout_seconds:
+            lines.append(f"超时：{timeout} 秒")
+        return "\n".join(lines)
+
+    def display_result(self, output: ToolOutput | None) -> dict[str, Any]:
+        if output is None:
+            return {"exit_code": None, "truncated": False}
+        display = output.display_metadata
+        return {
+            "stdout": display.get("stdout", ""),
+            "stderr": display.get("stderr", ""),
+            "exit_code": display.get("exit_code"),
+            "truncated": bool(display.get("truncated", False)),
+        }
 
     def audit_arguments(self, arguments: object) -> str:
         values = arguments if isinstance(arguments, dict) else {}
@@ -457,11 +487,17 @@ class BashTool(Tool):
 
     @staticmethod
     def _format_output(stdout: bytes, stderr: bytes) -> str:
-        stdout_text = redact_text(stdout.decode("utf-8", errors="replace"))
-        stderr_text = redact_text(stderr.decode("utf-8", errors="replace"))
+        stdout_text = BashTool._safe_output_text(stdout)
+        stderr_text = BashTool._safe_output_text(stderr)
         if stderr_text:
             return f"{stdout_text}\n[stderr]\n{stderr_text}" if stdout_text else f"[stderr]\n{stderr_text}"
         return stdout_text
+
+    @staticmethod
+    def _safe_output_text(value: bytes) -> str:
+        """先移除终端控制字符，再执行凭据脱敏，供模型和界面复用安全文本。"""
+
+        return redact_text(sanitize_terminal_text(value.decode("utf-8", errors="replace")))
 
     def _bounded_message(self, prefix: str, body: str, truncated: bool) -> str:
         """在一次预算内保留状态前缀、正文和截断标记，避免二次截断丢失提示。"""

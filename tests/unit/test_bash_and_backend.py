@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from likai_nexus.errors import ConfigError, ModelBackendError, ToolExecutionError
+from likai_nexus.executor.base import ToolOutput
 from likai_nexus.executor.service import ToolExecutor
 from likai_nexus.executor.tools.bash import BashTool
 from likai_nexus.models.openai_backend import OpenAICompatibleBackend
@@ -127,6 +128,33 @@ def test_bash_output_redacts_incomplete_private_key_block() -> None:
 
         assert "PARTIAL_PRIVATE_SECRET" not in output
         assert "[已脱敏：私钥内容]" in output
+
+
+def test_bash_display_projection_sanitizes_and_bounds_terminal_text(settings) -> None:
+    tool = BashTool(settings, CommandPolicy())
+    assert ToolExecutor._DISPLAY_RESULT_BYTES == 1024
+    command = ToolExecutor._display_arguments(tool, {"command": "中" * 3000})
+    assert len(command.encode("utf-8")) <= ToolExecutor._DISPLAY_COMMAND_BYTES
+    assert "[指令已截断]" in command
+
+    output = ToolExecutor._display_result(
+        tool,
+        ToolOutput(
+            "模型正文不使用界面投影",
+            display_metadata={
+                "stdout": "\x1b[31mOPENAI_API_KEY=DISPLAY_SECRET\r覆盖\b\n" + "中" * 3000,
+                "stderr": "",
+                "exit_code": None,
+                "truncated": False,
+            },
+        ),
+    )
+    assert len(output["stdout"].encode("utf-8")) <= ToolExecutor._DISPLAY_RESULT_BYTES
+    assert "[输出预览已截断]" in output["stdout"]
+    assert "DISPLAY_SECRET" not in output["stdout"]
+    assert "\x1b" not in output["stdout"]
+    assert "\r" not in output["stdout"]
+    assert "\b" not in output["stdout"]
 
 
 def test_model_content_redacts_tool_output_before_budget_truncation() -> None:

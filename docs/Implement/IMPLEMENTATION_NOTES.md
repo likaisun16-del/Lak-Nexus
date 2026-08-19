@@ -256,3 +256,128 @@ git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 ```
 
 2 个跳过项仍是当前 Windows 权限不足导致的符号链接测试；进程树、符号链接和 EOF 仍属于 Review 标注的非阻断 P2 门禁。当前实现等待 Reviewer 对 Review-3 P1 修复复审。
+
+## CLI 易用性、目录与持久化模式优化实施记录
+
+依据 `docs/Planner/USABILITY_PERSISTENT_ACCESS_PROGRESS_STORAGE_PLAN.md` 完成：
+
+- 新增 `data/preferences.json` 本地偏好存储，使用原子替换保存默认审查模式；显式 `strict`、`relaxed`、`full-access` 会更新默认模式。
+- 首次 `full-access` 强确认成功后保存偏好；后续沿用本地偏好时跳过重复确认，并在审批审计中使用 `decision_source=preference` 区分人工首次确认。
+- 偏好文件损坏、未知模式、读取失败时安全降级到 `strict`；偏好保存失败时不创建任务、不调用模型。
+- CLI 默认只展示任务开始、工具开始和工具终态，完整结构化事件仍由运行时产生；`--no-progress` 保持关闭全部过程行。
+- 运行时自动创建项目根 `data/` 和工作区 `script/`，系统提示与 Bash 工具说明均声明 `script/` 为默认脚本目录，Bash 当前目录仍为工作区根。
+- 相对 `DATABASE_PATH` 改为相对项目根解析；默认数据库为项目根 `data/likai_nexus.db`，显式路径位于工作区内部时拒绝启动。
+- 默认数据库首次启动时识别并迁移 `workspace/data/likai_nexus.db`、`workspace/.likai_nexus/tasks.db`；迁移前后校验 SQLite，旧库和 sidecar 移入 `data/legacy-backup-*`，冲突时选择固定顺序的权威库并保留另一份备份。
+- strict/relaxed 模式下将项目根 `data/` 作为受保护目录，文件工具和递归 `rg` 均不能读取；full-access 保留既有能力边界。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_preferences_and_app_data.py tests/integration/test_cli_agent.py tests/unit/test_config_and_safety.py -q -rs：60 passed，2 skipped
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_next_phase.py tests/unit/test_storage_and_loop.py tests/unit/test_file_tools.py tests/unit/test_bash_and_backend.py -q -rs：83 passed
+.\.venv\Scripts\ruff.exe check src tests：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+```
+
+剩余限制：真实模型 HTTP 取消仍是既有的 best-effort 行为；Windows 当前权限不足时符号链接专项测试仍会跳过。Reviewer 需要重点复核 full-access 首次确认/偏好沿用、旧数据库迁移不丢失、默认 CLI 事件白名单和 `data/` 工作区隔离。
+
+## Bash 指令、结果与模型轮次可见性实施记录
+
+依据 `docs/Planner/BASH_COMMAND_RESULT_VISIBILITY_PLAN.md` 完成：
+
+- 在现有 `Tool` 契约上增加安全的结果展示投影；默认工具不返回结果正文，Bash 单独提供 stdout、stderr、退出码和截断状态。
+- `ToolExecutor` 通过通用展示契约写入 `RuntimeEvent.metadata`，不按工具名称分支；审计仍只保存参数摘要、状态和结果摘要，不保存原始 command 或完整输出。
+- Bash 开始事件显示实际 command；默认 timeout 不重复展示，非默认 timeout 可见；超长指令使用独立预算并显示 `指令已截断`。
+- Bash 终态区分成功、失败、超时和取消；CLI 显示耗时、退出码、截断状态以及独立的 stdout/stderr 预览。没有有效退出码时显示“不可用”，不伪造为 0。
+- 模型调用开始/失败事件携带结构化 `turn_number`、`max_turns` 和状态；CLI 只显示开始轮次和失败轮次，不显示正常 `model_finished` 或内部安全事件。
+- 界面文本按“终端控制字符清理 → 凭据脱敏 → UTF-8 字节截断”的顺序处理；保留换行和制表，阻止 ANSI、回车覆盖和退格影响终端。
+- `--no-progress` 继续关闭全部过程事件；事件接收器异常仍由既有 `emit_safely` 隔离。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：148 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+```
+
+2 个跳过项仍是当前 Windows 权限不足时的符号链接专项测试；未修改 `docs/Review/REVIEW.md`。
+
+## Review-4 两个 P1 修复记录
+
+依据最新版 `docs/Review/REVIEW.md` 的 `P1-1` 和 `P1-2` 完成修复：
+
+- 工具结果展示投影的调用、结构清理、终端清理、脱敏和截断统一置于旁路保护中；展示异常统一降级为空展示，不再影响已经成功的 `ToolResult`、任务状态或工具审计，也不会在通用异常路径中重复调用失败的展示投影。
+- 终端展示值增加循环引用、过深嵌套和不支持对象的安全占位；模型失败原因在 CLI 短文本出口统一折叠为有界单行，避免 CR/LF/CRLF 注入伪造的 `[工具]`、`[模型]` 或 `[任务]` 顶层进程行。
+- 新增直接展示异常、循环展示结构、异常字符串对象、超深结构以及 CR/LF/CRLF 假前缀的回归测试。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：152 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+2 个跳过项仍是当前 Windows 权限不足导致的符号链接专项测试；未修改 `docs/Review/REVIEW.md`，等待 Reviewer 复审本轮 P1 修复。
+
+## Review-5 两个 P1 修复记录
+
+依据最新版 `docs/Review/REVIEW.md` 的本轮 `P1-1` 和 `P1-2` 完成修复：
+
+- `_display_arguments()` 将工具调用展示、值转换、终端清理、脱敏和字节截断统一置于一个异常隔离边界；任何第三方展示异常都降级为固定的 `[指令展示不可用]`，不阻止工具执行，也不改变成功结果和审计终态。
+- `CliApprovalHandler` 在构造 `input()` 提示前，对动作类型、审批摘要和确认令牌分别进行终端控制字符清理、凭据脱敏、单行化和字节限制；审批指纹、确认比较和实际执行参数继续使用原始值，展示清理不改变审批绑定语义。
+- 新增调用展示直接抛错/异常字符串对象测试，以及审批提示的 ANSI、CR/LF/CRLF、凭据和超长输入测试。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_next_phase.py tests/integration/test_cli_agent.py tests/unit/test_bash_and_backend.py -q -rs：74 passed
+.\.venv\Scripts\ruff.exe check src tests：All checks passed!
+.\.venv\Scripts\python.exe -m pytest -q -rs：156 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+未修改 `docs/Review/REVIEW.md`，等待 Reviewer 复审本轮 P1 修复。
+
+## Review-6 一个 P1 修复记录
+
+依据最新版 `docs/Review/REVIEW.md` 的 `P1-1` 完成修复：
+
+- 审批摘要的安全清理函数现在保留截断状态；当摘要超过 4096 字节时，在预算内追加固定的“审批摘要已截断”标记，不再让用户误以为看到的是完整命令。
+- 审批指纹、原始命令、确认 token 比较和实际执行参数均未改变；`--no-progress` 下也会直接在审批提示中显示截断告知。
+- 长摘要回归测试已断言标记存在，同时继续验证终端控制字符和凭据不会泄露。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest -q -rs：156 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+2 个跳过项仍是当前 Windows 权限不足导致的符号链接专项测试；未修改 `docs/Review/REVIEW.md`，等待 Reviewer 复审本轮 P1 修复。
+
+## 终端 stdout/stderr 预览上限调整
+
+依据用户要求，将终端结果预览上限从 4 KiB 调整为 1 KiB（1024 个 UTF-8 字节）：
+
+- 仅影响 CLI 终端中 stdout/stderr 的展示预览；指令预览、Bash 实际采集上限和回填模型的 `MAX_OUTPUT_BYTES` 保持不变。
+- 超过上限时继续显示 `[输出预览已截断]`，避免用户误以为终端展示了完整输出。
+
+本轮验证：
+
+```text
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_bash_and_backend.py tests/integration/test_cli_agent.py -q -rs：36 passed
+.\.venv\Scripts\ruff.exe check src tests：All checks passed!
+.\.venv\Scripts\python.exe -m pytest -q -rs：156 passed，2 skipped
+.\.venv\Scripts\ruff.exe check .：All checks passed!
+.\.venv\Scripts\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+2 个跳过项仍是当前 Windows 权限不足导致的符号链接专项测试；未修改 `docs/Review/REVIEW.md`。

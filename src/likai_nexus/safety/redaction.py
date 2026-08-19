@@ -31,6 +31,10 @@ _PRIVATE_KEY_BLOCK = re.compile(
     r"-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-\r\n]*PRIVATE KEY-----|$)",
     re.IGNORECASE,
 )
+_ANSI_ESCAPE = re.compile(
+    r"(?:\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-_])"
+)
+_TERMINAL_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _UNLABELED_CREDENTIAL = re.compile(
     r"(?<![A-Za-z0-9])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{8,}|"
     r"gh[pousr]_[A-Za-z0-9]{8,}|"
@@ -101,6 +105,45 @@ def audit_text_summary(label: str, value: str) -> str:
     """仅保存文本长度和摘要哈希，避免正文进入 SQLite。"""
 
     return f"{label}：字节数={len(value.encode('utf-8'))}，sha256={content_sha256(value)}"
+
+
+def sanitize_terminal_text(text: str) -> str:
+    """移除终端控制序列，保留换行和制表，避免输出覆盖或伪造终端内容。"""
+
+    text = _ANSI_ESCAPE.sub("", text)
+    text = text.replace("\r", "\n")
+    return _TERMINAL_CONTROL.sub("", text)
+
+
+def sanitize_terminal_value(
+    value: Any, *, _depth: int = 0, _seen: frozenset[int] | None = None
+) -> Any:
+    """递归清理界面事件字符串，并对循环或过深结构返回安全占位符。"""
+
+    if _depth > 20:
+        return "[展示结构已截断]"
+    if isinstance(value, (dict, list, tuple)):
+        seen = _seen or frozenset()
+        identity = id(value)
+        if identity in seen:
+            return "[展示结构已循环]"
+        seen = seen | {identity}
+        if isinstance(value, dict):
+            return {
+                sanitize_terminal_text(str(key)): sanitize_terminal_value(
+                    item, _depth=_depth + 1, _seen=seen
+                )
+                for key, item in value.items()
+            }
+        return [
+            sanitize_terminal_value(item, _depth=_depth + 1, _seen=seen)
+            for item in value
+        ]
+    if isinstance(value, str):
+        return sanitize_terminal_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return "[展示值不可用]"
 
 
 def redact_text(text: str) -> str:

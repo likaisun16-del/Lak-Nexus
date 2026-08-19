@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .config import Settings
@@ -35,10 +36,13 @@ def build_runtime(
     approvals: ApprovalHandler | None = None,
     review_mode: ReviewMode = ReviewMode.STRICT,
     event_sink: EventSink | None = None,
+    full_access_confirmed: bool = False,
+    on_full_access_confirmed: Callable[[], None] | None = None,
 ) -> Runtime:
     """完成一次性任务所需的依赖组装，测试可注入 Fake Backend 和静态审批器。"""
 
     mode = parse_review_mode(review_mode)
+    settings.prepare_runtime()
     approval_handler = approvals or CliApprovalHandler()
     registry = ToolRegistry(build_builtin_tools(settings, mode), settings.max_output_bytes, mode)
     if mode is not ReviewMode.FULL_ACCESS:
@@ -62,5 +66,7 @@ def build_runtime(
         review_mode=mode,
         approvals=approval_handler,
         event_sink=event_sink,
+        full_access_confirmed=full_access_confirmed,
+        on_full_access_confirmed=on_full_access_confirmed,
     )
     return Runtime(agent=agent, tasks=tasks)
