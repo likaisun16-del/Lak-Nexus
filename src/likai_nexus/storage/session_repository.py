@@ -12,6 +12,7 @@ from .task_repository import utc_now
 
 DEFAULT_SESSION_TITLE = "新会话"
 _VISIBLE_ROLES = frozenset({"user", "assistant"})
+_EXECUTION_STATUSES = frozenset({"pending", "success", "failed", "cancelled", "rejected"})
 
 
 class SessionRepository:
@@ -29,8 +30,9 @@ class SessionRepository:
         with self.database.connection() as connection:
             try:
                 connection.execute(
-                    "INSERT INTO sessions(session_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                    (session_id, title, now, now),
+                    "INSERT INTO sessions(session_id, title, created_at, updated_at, last_message_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (session_id, title, now, now, now),
                 )
             except Exception as exc:
                 raise SessionError(
@@ -52,7 +54,7 @@ class SessionRepository:
 
         with self.database.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM sessions ORDER BY updated_at DESC, session_id DESC"
+                "SELECT * FROM sessions ORDER BY last_message_at DESC, session_id DESC"
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -83,12 +85,20 @@ class SessionRepository:
         *,
         parent_message_id: str | None,
         task_id: str | None = None,
+        execution_status: str | None = None,
+        retry_of_message_id: str | None = None,
+        version_reason: str | None = None,
     ) -> dict[str, Any]:
         """校验同会话父节点后写入可见消息，并把新消息设为活动叶子。"""
 
         if role not in _VISIBLE_ROLES:
             raise SessionError(f"消息写入失败：不允许保存内部角色：{role}")
+        if execution_status is not None and execution_status not in _EXECUTION_STATUSES:
+            raise SessionError(f"消息写入失败：不支持的执行状态：{execution_status}")
+        if execution_status is None and role == "assistant":
+            execution_status = "success"
         safe_content = redact_text(content)
+        safe_version_reason = redact_text(version_reason) if version_reason else None
         message_id = uuid.uuid4().hex
         now = utc_now()
         with self.database.connection() as connection:
@@ -121,16 +131,91 @@ class SessionRepository:
                 ).fetchone()
                 if task is None:
                     raise SessionError(f"消息写入失败：关联 Task 不存在：{task_id}")
+            if retry_of_message_id is not None:
+                retry = connection.execute(
+                    "SELECT session_id FROM messages WHERE message_id = ?",
+                    (retry_of_message_id,),
+                ).fetchone()
+                if retry is None:
+                    raise SessionError(f"消息写入失败：重试来源消息不存在：{retry_of_message_id}")
+                if retry[0] != session_id:
+                    raise SessionError(
+                        f"消息写入失败：重试来源消息属于其他 Session：{retry_of_message_id}"
+                    )
             connection.execute(
                 "INSERT INTO messages(message_id, session_id, role, content, parent_message_id, "
-                "task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (message_id, session_id, role, safe_content, parent_message_id, task_id, now),
+                "task_id, execution_status, retry_of_message_id, version_reason, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    message_id,
+                    session_id,
+                    role,
+                    safe_content,
+                    parent_message_id,
+                    task_id,
+                    execution_status,
+                    retry_of_message_id,
+                    safe_version_reason,
+                    now,
+                ),
             )
             connection.execute(
-                "UPDATE sessions SET active_leaf_id = ?, updated_at = ? WHERE session_id = ?",
-                (message_id, now, session_id),
+                "UPDATE sessions SET active_leaf_id = ?, updated_at = ?, last_message_at = ? "
+                "WHERE session_id = ?",
+                (message_id, now, now, session_id),
             )
         return self.get_message(message_id)  # type: ignore[return-value]
+
+    def update_message_execution(
+        self, message_id: str, task_id: str | None, execution_status: str
+    ) -> None:
+        """回填 user 消息的 Task 和终态，拒绝请求可以明确保持无 Task。"""
+
+        if execution_status not in _EXECUTION_STATUSES - {"pending"}:
+            raise SessionError(f"消息状态回填失败：不支持的终态：{execution_status}")
+        if execution_status == "rejected" and task_id is not None:
+            raise SessionError("消息状态回填失败：rejected 消息不能关联 Task")
+        if execution_status != "rejected" and task_id is None:
+            raise SessionError(
+                f"消息状态回填失败：{execution_status} 消息必须关联 Task"
+            )
+        with self.database.connection() as connection:
+            message = connection.execute(
+                "SELECT role FROM messages WHERE message_id = ?", (message_id,)
+            ).fetchone()
+            if message is None:
+                raise SessionError(f"消息状态回填失败：消息不存在：{message_id}")
+            if message[0] != "user":
+                raise SessionError(f"消息状态回填失败：只有 user 消息允许关联执行 Task：{message_id}")
+            if task_id is not None:
+                task = connection.execute(
+                    "SELECT 1 FROM tasks WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if task is None:
+                    raise SessionError(f"消息状态回填失败：关联 Task 不存在：{task_id}")
+            cursor = connection.execute(
+                "UPDATE messages SET task_id = ?, execution_status = ? WHERE message_id = ?",
+                (task_id, execution_status, message_id),
+            )
+            if cursor.rowcount != 1:
+                raise SessionError(f"消息状态回填失败：消息不存在：{message_id}")
+
+    def set_message_version(self, message_id: str, reason: str | None) -> None:
+        """保存版本关联结果或安全诊断原因，不记录原始请求和敏感内容。"""
+
+        safe_reason = redact_text(reason) if reason else None
+        with self.database.connection() as connection:
+            message = connection.execute(
+                "SELECT role FROM messages WHERE message_id = ?", (message_id,)
+            ).fetchone()
+            if message is None:
+                raise SessionError(f"版本结果保存失败：消息不存在：{message_id}")
+            if message[0] != "assistant":
+                raise SessionError(f"版本结果保存失败：只有 assistant 消息允许保存版本结果：{message_id}")
+            connection.execute(
+                "UPDATE messages SET version_reason = ? WHERE message_id = ?",
+                (safe_reason, message_id),
+            )
 
     def get_message(self, message_id: str) -> dict[str, Any] | None:
         """查询一条可见消息。"""

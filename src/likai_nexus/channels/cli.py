@@ -17,6 +17,11 @@ from ..safety.review_mode import ReviewMode
 from ..storage.preferences import LocalPreferenceStore
 from .console_renderer import ConsoleEventSink
 
+_COMMIT_BOUNDARY_NOTICE = (
+    "注意：Commit SHA 只代表已提交的 Git 内容，不会撤销未提交文件、数据库、网络、"
+    "系统或外部服务副作用。"
+)
+
 
 def build_parser() -> argparse.ArgumentParser:
     """构建一次性任务 CLI，参数解析与业务执行保持分离。"""
@@ -107,7 +112,8 @@ def _run_session_command(argv: list[str]) -> int:
         if args.command == "list":
             for session in service.list():
                 print(
-                    f"{session['session_id']}\t{session['title']}\t最近消息：{session['updated_at']}"
+                    f"{session['session_id']}\t{session['title']}\t最近消息："
+                    f"{session['last_message_at']}"
                 )
             return 0
         if args.command == "history":
@@ -115,8 +121,10 @@ def _run_session_command(argv: list[str]) -> int:
         if args.command == "branches":
             return _print_session_branches(service, args.session_id)
         if args.command == "continue-from":
-            session_id = service.continue_from(args.message_id)
-            preferences.save_active_session_id(session_id)
+            session_id = preferences.load_active_session_id()
+            if not session_id:
+                raise SessionError("继续会话失败：本机尚未选择活动 Session")
+            service.continue_from(session_id, args.message_id)
             print(f"活动分支已切换：Session={session_id}，消息={args.message_id}")
             return 0
         if args.command == "commit":
@@ -125,9 +133,15 @@ def _run_session_command(argv: list[str]) -> int:
                 raise SessionError(f"Commit 查询失败：消息不存在：{args.message_id}")
             association = service.commit_for_message(args.message_id)
             if association is None:
-                print(f"消息 {args.message_id}：未记录版本")
+                reason = message.get("version_reason") or "未记录版本：没有可用的结果 Commit"
+                task_text = f"Task={message['task_id']}，" if message.get("task_id") else ""
+                print(f"消息 {args.message_id}：{task_text}{reason}")
             else:
-                print(f"消息 {args.message_id}：Commit SHA={association['commit_sha']}")
+                print(
+                    f"消息 {args.message_id}：Task={association['task_id']}，"
+                    f"Commit SHA={association['commit_sha']}"
+                )
+            print(_COMMIT_BOUNDARY_NOTICE)
             return 0
         if args.command == "switch":
             session = service.switch(args.session_id)
@@ -172,10 +186,32 @@ def _print_session_history(service, session_id: str) -> int:
     print(f"Session {session_id}：{session['title']}")
     for message in service.history(session_id):
         task_text = f"，Task={message['task_id']}" if message.get("task_id") else ""
-        print(f"[{message['role']}] {message['message_id']}{task_text}：{message['content']}")
+        status_text = (
+            f"，状态={message['execution_status']}"
+            if message.get("execution_status")
+            else ""
+        )
+        retry_text = (
+            f"，重试自={message['retry_of_message_id']}"
+            if message.get("retry_of_message_id")
+            else ""
+        )
+        print(
+            f"[{message['role']}] {message['message_id']}{task_text}"
+            f"{status_text}{retry_text}：{message['content']}"
+        )
         if message["role"] == "assistant":
             association = service.commit_for_message(message["message_id"])
-            print(f"  版本：{association['commit_sha'] if association else '未记录版本'}")
+            if association:
+                print(
+                    f"  版本：Task={association['task_id']}，"
+                    f"Commit SHA={association['commit_sha']}"
+                )
+            else:
+                print(
+                    f"  版本：{message.get('version_reason') or '未记录版本：没有可用的结果 Commit'}"
+                )
+            print(f"  {_COMMIT_BOUNDARY_NOTICE}")
     return 0
 
 
@@ -296,6 +332,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Session {session_result.session_id}，消息 {session_result.user_message_id}")
         if session_result.commit_sha:
             print(f"Commit SHA：{session_result.commit_sha}")
+        elif session_result.commit_reason:
+            print(session_result.commit_reason)
+        if session_result.commit_sha or session_result.commit_reason:
+            print(_COMMIT_BOUNDARY_NOTICE)
     if result.content:
         print(redact_text(sanitize_terminal_text(result.content)))
     if result.error_message:

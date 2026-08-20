@@ -65,6 +65,7 @@ class Database:
                     title TEXT NOT NULL DEFAULT '新会话',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
+                    last_message_at TEXT NOT NULL,
                     active_leaf_id TEXT REFERENCES messages(message_id) ON DELETE SET NULL
                 );
                 CREATE TABLE IF NOT EXISTS messages (
@@ -74,6 +75,9 @@ class Database:
                     content TEXT NOT NULL,
                     parent_message_id TEXT REFERENCES messages(message_id) ON DELETE CASCADE,
                     task_id TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
+                    execution_status TEXT,
+                    retry_of_message_id TEXT REFERENCES messages(message_id) ON DELETE SET NULL,
+                    version_reason TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS task_commits (
@@ -93,6 +97,7 @@ class Database:
             )
             self._migrate_tasks(connection)
             self._migrate_approvals(connection)
+            self._migrate_session_columns(connection)
             self._migrate_message_columns(connection)
             self._migrate_legacy_message_rows(connection)
 
@@ -116,6 +121,19 @@ class Database:
         if columns and "decision_source" not in columns:
             connection.execute(
                 "ALTER TABLE approvals ADD COLUMN decision_source TEXT NOT NULL DEFAULT 'legacy'"
+            )
+
+    @staticmethod
+    def _migrate_session_columns(connection: sqlite3.Connection) -> None:
+        """为旧会话补充独立的最近消息时间，避免标题或分支指针更新冒充新消息。"""
+
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if columns and "last_message_at" not in columns:
+            connection.execute("ALTER TABLE sessions ADD COLUMN last_message_at TEXT")
+            connection.execute(
+                "UPDATE sessions SET last_message_at = COALESCE(last_message_at, updated_at)"
             )
 
     @staticmethod
@@ -200,6 +218,12 @@ class Database:
             connection.execute("ALTER TABLE messages ADD COLUMN parent_message_id TEXT")
         if columns and "task_id" not in columns:
             connection.execute("ALTER TABLE messages ADD COLUMN task_id TEXT")
+        if columns and "execution_status" not in columns:
+            connection.execute("ALTER TABLE messages ADD COLUMN execution_status TEXT")
+        if columns and "retry_of_message_id" not in columns:
+            connection.execute("ALTER TABLE messages ADD COLUMN retry_of_message_id TEXT")
+        if columns and "version_reason" not in columns:
+            connection.execute("ALTER TABLE messages ADD COLUMN version_reason TEXT")
 
     @staticmethod
     def _migrate_legacy_message_rows(connection: sqlite3.Connection) -> None:
@@ -231,21 +255,32 @@ class Database:
             created_at = row[6] or utc_now_fallback()
             session_times.setdefault(session_id, []).append(created_at)
             connection.execute(
-                "INSERT OR IGNORE INTO sessions(session_id, title, created_at, updated_at) "
-                "VALUES (?, '新会话', ?, ?)",
-                (session_id, created_at, created_at),
+                "INSERT OR IGNORE INTO sessions(session_id, title, created_at, updated_at, last_message_at) "
+                "VALUES (?, '新会话', ?, ?, ?)",
+                (session_id, created_at, created_at, created_at),
             )
             message_id = str(row[1]) if row[1] else uuid.uuid4().hex
             parent_id = previous_by_session.get(session_id)
             connection.execute(
                 "INSERT OR IGNORE INTO messages(message_id, session_id, role, content, "
-                "parent_message_id, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (message_id, session_id, row[3], row[4], parent_id, row[5], created_at),
+                "parent_message_id, task_id, execution_status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    message_id,
+                    session_id,
+                    row[3],
+                    row[4],
+                    parent_id,
+                    row[5],
+                    "success" if row[3] == "assistant" else None,
+                    created_at,
+                ),
             )
             previous_by_session[session_id] = message_id
             connection.execute(
-                "UPDATE sessions SET active_leaf_id = ?, updated_at = ? WHERE session_id = ?",
-                (message_id, created_at, session_id),
+                "UPDATE sessions SET active_leaf_id = ?, updated_at = ?, last_message_at = ? "
+                "WHERE session_id = ?",
+                (message_id, created_at, created_at, session_id),
             )
         connection.execute("DROP TABLE messages_linear_legacy")
 

@@ -395,6 +395,28 @@ git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 
 2 个跳过项仍是当前 Windows 权限不足导致的符号链接专项测试；未修改 `docs/Review/REVIEW.md`，等待 Reviewer 复审本轮 P1 修复。
 
+## Session/Git Review P1 修复记录
+
+依据 `docs/Review/REVIEW.md` 当前 `CHANGES_REQUIRED` 结论，修复本轮 Session 树与 Git 关联问题：
+
+- Git 只读查询同时使用 `--no-optional-locks` 和 `GIT_OPTIONAL_LOCKS=0`，避免 `git status` 刷新 index stat 缓存；测试保存 index 字节、时间、工作树内容和 refs 前后快照。
+- Commit 关联改为显式资格判定：必须有审计记录的成功 `write`/`edit`、任务前后可比较且不同的完整 HEAD、任务结束时干净工作区；普通对话、非代码任务、未提交结果、相同 HEAD、Git 读取失败和关联保存失败均保留安全原因并返回未记录版本。
+- user 消息先写入待执行状态，任务返回后回填稳定 Task ID 和 success/failed/cancelled 终态；失败或取消不创建伪 assistant，重试会保存来源消息 ID，历史展示显式状态与重试关系。
+- `continue-from` 必须携带调用方当前 Session，并在跨 Session 时先拒绝再更新活动叶子；CLI 使用本机活动 Session，不再因历史消息反向切换活动偏好。
+- Commit 查询和历史展示增加 Task ID、完整 SHA 与“仅覆盖已提交内容”的强制边界提示；未记录版本保存可诊断原因但不保存原始请求敏感内容。
+- `sessions.last_message_at` 与 `updated_at` 分离，标题修改和分支指针切换不会冒充最近消息时间；旧数据库启动时增量补列并保留旧消息链。
+
+本轮保留用户先前明确要求的 `MAX_TURNS=50`，未按 Review 中与该请求冲突的建议恢复为 20。
+
+## Session/Git Review P1 二次修复记录
+
+依据最新 `docs/Review/REVIEW.md` 的两个阻断问题完成：
+
+- Session 在创建可见 user Message 前通过 `TaskStateStore.get()` 预检重复 `task_id`；重复请求只保存无 Task 的 `rejected` 消息并抛出“本次请求未创建新 Task”，不再把新失败消息回填到旧的 success/failed/cancelled Task。AgentLoop 边界仍保留专门的重复异常处理作为兜底。
+- 版本附加链路统一置于旁路保护：Git 基线读取、成功代码修改资格查询、结束快照读取、CommitRepository 保存以及 assistant 版本原因写入分别失败时，只返回安全的“未记录版本”原因；assistant 和成功 Task 已保存后不会因版本能力故障向调用方抛异常。
+- 新增成功、失败、取消三种旧 Task 状态下的重复 ID 回归测试，补充基线读取、审计资格、Commit 保存和版本原因落库四类故障注入测试。
+- 新增 CLI `history`、`continue-from`、`commit`、`switch` 集成测试，覆盖 Task/SHA 展示、边界提示、跨 Session 拒绝和活动偏好不变。
+
 ## 终端 stdout/stderr 预览上限调整
 
 依据用户要求，将终端结果预览上限从 4 KiB 调整为 1 KiB（1024 个 UTF-8 字节）：

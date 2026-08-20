@@ -54,6 +54,9 @@ class TaskStateStore(Protocol):
     ) -> None:
         """持久化任务状态和可诊断摘要。"""
 
+    def get(self, task_id: str) -> dict[str, Any] | None:
+        """读取任务，供上层在创建可见消息前执行幂等预检。"""
+
 
 class AgentLoop:
     """最小模型循环，工具按模型返回顺序串行执行。"""

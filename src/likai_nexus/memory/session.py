@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ..git import GitReadOnly
+from ..errors import SessionError, TaskAlreadyExistsError
+from ..git import GitCommitSnapshot, GitReadOnly
 from ..models.base import ModelBackend
 from ..orchestrator.agent_loop import AgentLoop
 from ..orchestrator.schemas import AgentResult, ChatMessage, TaskStatus
@@ -31,6 +33,7 @@ class SessionAskResult:
     assistant_message_id: str | None = None
     commit_sha: str | None = None
     title: str = DEFAULT_SESSION_TITLE
+    commit_reason: str | None = None
 
     @property
     def status(self) -> TaskStatus:
@@ -92,14 +95,19 @@ class SessionService:
 
         return self.repository.list_branches(session_id)
 
-    def continue_from(self, message_id: str) -> str:
-        """把活动叶子切换到任意合法可见消息并返回其 Session。"""
+    def continue_from(self, session_id: str, message_id: str) -> None:
+        """只在调用方当前 Session 内切换活动叶子，拒绝跨会话副作用。"""
 
-        session_id = self.repository.get_session_for_message(message_id)
-        if session_id is None:
-            raise ValueError(f"继续会话失败：消息不存在：{message_id}")
+        if self.repository.get(session_id) is None:
+            raise SessionError(f"继续会话失败：当前 Session 不存在：{session_id}")
+        message_session_id = self.repository.get_session_for_message(message_id)
+        if message_session_id is None:
+            raise SessionError(f"继续会话失败：消息不存在：{message_id}")
+        if message_session_id != session_id:
+            raise SessionError(
+                f"继续会话失败：消息属于其他 Session，未切换当前活动分支：{message_id}"
+            )
         self.repository.set_active_leaf(session_id, message_id)
-        return session_id
 
     def switch(self, session_id: str) -> dict[str, Any]:
         """校验并返回可切换的 Session。"""
@@ -142,21 +150,53 @@ class SessionService:
         context = tuple(
             ChatMessage(role=item["role"], content=item["content"]) for item in history
         )
+        effective_task_id = task_id or uuid.uuid4().hex
+        self._reject_duplicate_task_if_needed(
+            session_id, request_text, session["active_leaf_id"], effective_task_id
+        )
+        baseline = self._read_baseline()
+        retry_of_message_id = self._retry_source(session["active_leaf_id"])
         user_message = self.repository.add_message(
             session_id,
             "user",
             request_text,
             parent_message_id=session["active_leaf_id"],
+            execution_status="pending",
+            retry_of_message_id=retry_of_message_id,
         )
-        result = await self.agent.run(
-            request_text,
-            task_id=task_id,
-            cancel_event=cancel_event,
-            context_messages=context,
+        try:
+            result = await self.agent.run(
+                request_text,
+                task_id=effective_task_id,
+                cancel_event=cancel_event,
+                context_messages=context,
+            )
+        except asyncio.CancelledError:
+            self._ensure_cancelled_task(effective_task_id, request_text)
+            self.repository.update_message_execution(
+                user_message["message_id"], effective_task_id, TaskStatus.CANCELLED.value
+            )
+            raise
+        except TaskAlreadyExistsError:
+            self.repository.update_message_execution(
+                user_message["message_id"], None, "rejected"
+            )
+            raise
+        except Exception as exc:
+            message = redact_text(f"Session Task 执行失败：{type(exc).__name__}: {exc}")
+            self._ensure_failed_task(effective_task_id, request_text, type(exc).__name__, message)
+            self.repository.update_message_execution(
+                user_message["message_id"], effective_task_id, TaskStatus.FAILED.value
+            )
+            raise
+        self._ensure_result_task(result, request_text)
+        self.repository.update_message_execution(
+            user_message["message_id"], result.task_id, result.status.value
         )
         title = session["title"]
         assistant_message_id: str | None = None
         commit_sha: str | None = None
+        commit_reason: str | None = None
         if result.status is TaskStatus.SUCCESS:
             assistant = self.repository.add_message(
                 session_id,
@@ -166,7 +206,8 @@ class SessionService:
                 task_id=result.task_id,
             )
             assistant_message_id = assistant["message_id"]
-            commit_sha = self._try_record_commit(result.task_id)
+            commit_sha, commit_reason = self._try_record_commit(result.task_id, baseline)
+            self._try_persist_version_reason(assistant_message_id, commit_reason)
             if self.repository.assistant_count(session_id) == 1 and title == DEFAULT_SESSION_TITLE:
                 generated_title = await self._try_generate_title(request_text, result.content)
                 if generated_title:
@@ -180,25 +221,176 @@ class SessionService:
             assistant_message_id=assistant_message_id,
             commit_sha=commit_sha,
             title=title,
+            commit_reason=commit_reason,
         )
 
-    def _try_record_commit(self, task_id: str) -> str | None:
-        """Git 或关联库失败时只返回未记录，不改变已成功 Task。"""
+    def _try_record_commit(
+        self, task_id: str, baseline: Any
+    ) -> tuple[str | None, str | None]:
+        """仅在任务有成功代码写入且前后 Commit 可证明变化时建立关联。"""
 
-        if self.commits is None or self.git_reader is None:
-            return None
-        snapshot = self.git_reader.read_clean_commit()
-        if snapshot.commit_sha is None:
-            return None
         try:
+            if self.commits is None or self.git_reader is None:
+                return None, "未记录版本：运行时未配置 Git 版本关联能力"
+            has_mutation, mutation_reason = self._code_mutation_eligibility(task_id)
+            if not has_mutation:
+                return None, mutation_reason or "未记录版本：任务未成功执行可版本化的代码写入或修改"
+            if baseline.commit_sha is None:
+                return None, self._snapshot_reason(
+                    baseline, "任务开始前无法确认干净的 Git 基线"
+                )
+            snapshot = self.git_reader.read_clean_commit()
+            if snapshot.commit_sha is None:
+                return None, self._snapshot_reason(
+                    snapshot, "任务结束时无法确认干净的 Git 工作区"
+                )
+            if snapshot.commit_sha == baseline.commit_sha:
+                return None, "未记录版本：任务前后 HEAD 未变化，无法证明该 Commit 代表本次结果"
             association = self.commits.record(
                 task_id,
                 snapshot.commit_sha,
                 str(self.git_reader.repository_root),
             )
+        except Exception as exc:  # noqa: BLE001
+            return None, f"未记录版本：版本附加链路失败：{type(exc).__name__}"
+        return association["commit_sha"], None
+
+    def _read_baseline(self):
+        """在任务开始前读取一次 Git 快照，失败原因保留为安全诊断文本。"""
+
+        if self.git_reader is None:
+            return GitCommitSnapshot(None, "Git 版本读取器未配置")
+        try:
+            return self.git_reader.read_clean_commit()
+        except Exception as exc:  # noqa: BLE001
+            return GitCommitSnapshot(
+                None, f"Git 基线读取失败：{type(exc).__name__}"
+            )
+
+    def _code_mutation_eligibility(self, task_id: str) -> tuple[bool, str | None]:
+        """查询成功代码修改资格，并把审计故障转换成版本旁路诊断。"""
+
+        try:
+            audit_repository = self.agent.executor.audit.repository  # type: ignore[union-attr]
+            if audit_repository.has_successful_code_mutation(task_id):
+                return True, None
+            return False, "未记录版本：任务未成功执行可版本化的代码写入或修改"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"未记录版本：代码修改资格查询失败：{type(exc).__name__}"
+
+    def _reject_duplicate_task_if_needed(
+        self,
+        session_id: str,
+        request_text: str,
+        parent_message_id: str | None,
+        task_id: str,
+    ) -> None:
+        """在可见消息写入前拒绝重复 Task ID，避免新消息借用旧执行事实。"""
+
+        try:
+            existing = self.agent.task_store.get(task_id)  # type: ignore[union-attr]
+        except Exception as exc:
+            raise SessionError(
+                f"Session Task 去重检查失败：无法读取 Task {task_id}，原因：{type(exc).__name__}"
+            ) from exc
+        if existing is None:
+            return
+        self.repository.add_message(
+            session_id,
+            "user",
+            request_text,
+            parent_message_id=parent_message_id,
+            execution_status="rejected",
+        )
+        raise TaskAlreadyExistsError(
+            f"任务创建失败：task_id 已存在：{task_id}，本次请求未创建新 Task"
+        )
+
+    def _try_persist_version_reason(
+        self, assistant_message_id: str, reason: str | None
+    ) -> None:
+        """版本原因落库失败只降级展示信息，不影响已保存的 assistant。"""
+
+        try:
+            self.repository.set_message_version(assistant_message_id, reason)
         except Exception:  # noqa: BLE001
+            return
+
+    def _retry_source(self, message_id: str | None) -> str | None:
+        """失败或取消的 user 叶子再次提问时记录稳定的重试来源。"""
+
+        if message_id is None:
             return None
-        return association["commit_sha"]
+        message = self.repository.get_message(message_id)
+        if message and message.get("role") == "user" and message.get("execution_status") in {
+            TaskStatus.FAILED.value,
+            TaskStatus.CANCELLED.value,
+        }:
+            return message_id
+        return None
+
+    def _ensure_result_task(self, result: AgentResult, request_text: str) -> None:
+        """为完全访问确认拒绝等未建 Task 的 AgentResult 补齐可审计任务边界。"""
+
+        if self.agent is None:
+            return
+        try:
+            created = self.agent.task_store.create(
+                result.task_id, request_text, self.agent.review_mode
+            )
+            if created and result.status is TaskStatus.SUCCESS:
+                self.agent.task_store.set_status(result.task_id, TaskStatus.RUNNING)
+                self.agent.task_store.set_status(
+                    result.task_id, TaskStatus.SUCCESS, result_summary=result.content
+                )
+            elif created and result.status is not TaskStatus.SUCCESS:
+                self.agent.task_store.set_status(
+                    result.task_id,
+                    result.status,
+                    error_type="SessionResult",
+                    error_message=result.error_message,
+                )
+        except Exception as exc:
+            get_task = getattr(self.agent.task_store, "get", None)
+            if not callable(get_task) or get_task(result.task_id) is None:
+                raise SessionError(
+                    f"Session Task 关联失败：无法建立 Task {result.task_id}，原因：{type(exc).__name__}"
+                ) from exc
+
+    def _ensure_cancelled_task(self, task_id: str, request_text: str) -> None:
+        """协程在 AgentLoop 边界外取消时补建 cancelled Task。"""
+
+        if self.agent is None:
+            return
+        created = self.agent.task_store.create(task_id, request_text, self.agent.review_mode)
+        if created:
+            self.agent.task_store.set_status(
+                task_id,
+                TaskStatus.CANCELLED,
+                error_type="CancelledError",
+                error_message="Session 问答协程已取消",
+            )
+
+    def _ensure_failed_task(
+        self, task_id: str, request_text: str, error_type: str, error_message: str
+    ) -> None:
+        """Session 捕获执行异常时建立 failed Task，保留可定位但已脱敏的原因。"""
+
+        if self.agent is None:
+            return
+        created = self.agent.task_store.create(task_id, request_text, self.agent.review_mode)
+        if created:
+            self.agent.task_store.set_status(
+                task_id,
+                TaskStatus.FAILED,
+                error_type=error_type,
+                error_message=error_message,
+            )
+
+    @staticmethod
+    def _snapshot_reason(snapshot: Any, fallback: str) -> str:
+        reason = getattr(snapshot, "reason", None)
+        return f"未记录版本：{reason or fallback}"
 
     async def _try_generate_title(self, request_text: str, answer: str) -> str | None:
         """标题调用失败、取消或空响应时保持默认标题。"""

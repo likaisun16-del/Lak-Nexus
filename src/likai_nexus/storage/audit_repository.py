@@ -127,3 +127,15 @@ class AuditRepository:
                 (task_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def has_successful_code_mutation(self, task_id: str) -> bool:
+        """判断任务是否成功调用了明确的代码写入工具，作为版本关联资格依据。"""
+
+        with self.database.connection() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM tool_calls "
+                "WHERE task_id = ? AND tool_name IN ('write', 'edit') AND status = 'success' "
+                "LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        return row is not None

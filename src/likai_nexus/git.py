@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -45,8 +46,11 @@ class GitReadOnly:
         """以参数数组执行单个只读 Git 查询，不启用 shell。"""
 
         try:
+            environment = os.environ.copy()
+            # status 默认可能刷新 index 的 stat 缓存；该检查必须对仓库完全无副作用。
+            environment["GIT_OPTIONAL_LOCKS"] = "0"
             result = subprocess.run(
-                ["git", *arguments],
+                ["git", "--no-optional-locks", *arguments],
                 cwd=self.repository_root,
                 capture_output=True,
                 text=True,
@@ -55,6 +59,7 @@ class GitReadOnly:
                 timeout=self.timeout_seconds,
                 check=False,
                 shell=False,
+                env=environment,
             )
         except (OSError, subprocess.SubprocessError):
             return None

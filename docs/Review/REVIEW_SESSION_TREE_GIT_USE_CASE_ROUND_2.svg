@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1260" viewBox="0 0 1500 1260">
+  <rect width="1500" height="1260" fill="white"/>
+  <text x="750" y="44" text-anchor="middle" font-size="22" font-weight="bold" fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Session 树与 Git 版本关联 - 第二轮复审用例图</text>
+
+  <!-- 本地用户：W=260；Session 域 cy=260，子用例中位数=260 -->
+  <circle cx="60" cy="242" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="260" x2="60" y2="300" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="278" x2="85" y2="278" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="300" x2="38" y2="330" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="300" x2="82" y2="330" stroke="#333" stroke-width="2"/>
+  <text x="60" y="350" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本地用户</text>
+  <ellipse cx="200" cy="260" rx="90" ry="32" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="200" y="265" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Session 会话域</text>
+  <line x1="78" y1="260" x2="108" y2="260" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <ellipse cx="460" cy="100" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="105" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">分支与上下文隔离</text>
+  <ellipse cx="460" cy="180" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="177" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">失败消息追踪 / 重试</text>
+  <text x="460" y="193" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已通过</text>
+  <ellipse cx="460" cy="260" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="257" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">跨 Session 继续拒绝</text>
+  <text x="460" y="273" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已通过</text>
+  <ellipse cx="460" cy="340" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="337" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">最近消息时间分离</text>
+  <text x="460" y="353" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已通过</text>
+  <ellipse cx="460" cy="420" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="417" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">重复 Task 事实一致</text>
+  <text x="460" y="433" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新 P1：需修复</text>
+  <line x1="290" y1="260" x2="360" y2="100" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="180" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="260" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="340" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="260" x2="360" y2="420" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- Git 仓库：W=740；版本域 cy=740，子用例中位数=(700+780)/2=740 -->
+  <circle cx="60" cy="722" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="740" x2="60" y2="780" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="758" x2="85" y2="758" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="780" x2="38" y2="810" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="780" x2="82" y2="810" stroke="#333" stroke-width="2"/>
+  <text x="60" y="830" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Git 仓库</text>
+  <ellipse cx="200" cy="740" rx="90" ry="32" fill="#3a7bd5" stroke="#3a7bd5" stroke-width="1.5"/>
+  <text x="200" y="745" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">版本关联域</text>
+  <line x1="78" y1="740" x2="108" y2="740" stroke="#aaaaaa" stroke-width="1.2"/>
+
+  <ellipse cx="460" cy="620" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="617" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">索引零写入</text>
+  <text x="460" y="633" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已通过</text>
+  <ellipse cx="460" cy="700" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="697" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Commit 资格判定</text>
+  <text x="460" y="713" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已通过</text>
+  <ellipse cx="460" cy="780" rx="100" ry="28" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="460" y="777" text-anchor="middle" font-size="13" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Task / SHA / 边界提示</text>
+  <text x="460" y="793" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">改造已通过</text>
+  <ellipse cx="460" cy="860" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="857" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">版本故障旁路隔离</text>
+  <text x="460" y="873" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新 P1：需修复</text>
+  <line x1="290" y1="740" x2="360" y2="620" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="740" x2="360" y2="700" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="740" x2="360" y2="780" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="740" x2="360" y2="860" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- CI / Reviewer：W=1080；测试域 cy=1080，子用例中位数=(1040+1120)/2=1080 -->
+  <circle cx="60" cy="1062" r="18" fill="none" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="1080" x2="60" y2="1120" stroke="#333" stroke-width="2"/>
+  <line x1="35" y1="1098" x2="85" y2="1098" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="1120" x2="38" y2="1150" stroke="#333" stroke-width="2"/>
+  <line x1="60" y1="1120" x2="82" y2="1150" stroke="#333" stroke-width="2"/>
+  <text x="60" y="1170" text-anchor="middle" font-size="14" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">CI / Reviewer</text>
+  <ellipse cx="200" cy="1080" rx="90" ry="32" fill="#2e8b57" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="200" y="1085" text-anchor="middle" font-size="13" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">验证门禁域</text>
+  <line x1="78" y1="1080" x2="108" y2="1080" stroke="#aaaaaa" stroke-width="1.2"/>
+  <ellipse cx="460" cy="1040" rx="100" ry="28" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="460" y="1045" text-anchor="middle" font-size="13" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">178 项全量测试通过</text>
+  <ellipse cx="460" cy="1120" rx="100" ry="28" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="460" y="1117" text-anchor="middle" font-size="13" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">故障注入 / CLI 矩阵</text>
+  <text x="460" y="1133" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新缺口：待补齐</text>
+  <line x1="290" y1="1080" x2="360" y2="1040" stroke="#cccccc" stroke-width="1"/>
+  <line x1="290" y1="1080" x2="360" y2="1120" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- 图例：仅列本图实际使用的状态和域颜色 -->
+  <rect x="1080" y="70" width="330" height="335" rx="8" fill="white" stroke="#cccccc" stroke-width="1.2"/>
+  <text x="1245" y="98" text-anchor="middle" font-size="14" font-weight="bold" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">图例</text>
+  <ellipse cx="1165" cy="130" rx="70" ry="22" fill="#f8f8f8" stroke="#bbbbbb" stroke-width="1.5"/>
+  <text x="1165" y="135" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">已有能力</text>
+  <text x="1300" y="135" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">稳定保留</text>
+  <ellipse cx="1165" cy="180" rx="70" ry="22" fill="#fff8e6" stroke="#e07b00" stroke-width="1.5"/>
+  <text x="1165" y="185" text-anchor="middle" font-size="12" fill="#7a4a00" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">本轮改造</text>
+  <text x="1300" y="185" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">复核通过</text>
+  <ellipse cx="1165" cy="230" rx="70" ry="22" fill="white" stroke="#4a7fd4" stroke-width="1.5"/>
+  <text x="1165" y="235" text-anchor="middle" font-size="12" fill="#1a4a8a" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">新增问题</text>
+  <text x="1300" y="235" text-anchor="middle" font-size="12" fill="#222" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Review 阻断</text>
+  <ellipse cx="1165" cy="280" rx="70" ry="22" fill="#7b5ea7" stroke="#7b5ea7" stroke-width="1.5"/>
+  <text x="1165" y="285" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">Session 域</text>
+  <ellipse cx="1165" cy="330" rx="70" ry="22" fill="#3a7bd5" stroke="#3a7bd5" stroke-width="1.5"/>
+  <text x="1165" y="335" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">版本关联域</text>
+  <ellipse cx="1165" cy="380" rx="70" ry="22" fill="#2e8b57" stroke="#2e8b57" stroke-width="1.5"/>
+  <text x="1165" y="385" text-anchor="middle" font-size="12" fill="white" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">验证门禁域</text>
+</svg>

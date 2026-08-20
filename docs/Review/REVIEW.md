@@ -1,94 +1,95 @@
-# 架构优化已确认方案第二轮复审报告
+# Session 树形会话与 Git Commit 关联第三轮复审报告
 
 ## 审查信息
 
 - 审查状态：COMPLETED
 - 审查人：Codex Reviewer
 - 审查时间：2026-08-19
-- 对应文档：`docs/Planner/ARCHITECTURE_OPTIMIZATION_DISCUSSION.md`
-- 审查基线：`3bbad75`（`main`）加当前未提交、未跟踪实现及 Fixer 修复
-- 上一轮归档：[`REVIEW_ARCHITECTURE_OPTIMIZATION_ROUND_1.md`](./REVIEW_ARCHITECTURE_OPTIMIZATION_ROUND_1.md)
-- 实现交接：`docs/Implement/IMPLEMENTATION_NOTES.md` 中“架构优化讨论方案执行记录”及本轮 P1 修复记录
-- 用例附件：[`REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.svg`](./REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.svg) / [`REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.png`](./REVIEW_ARCHITECTURE_OPTIMIZATION_USE_CASE_ROUND_2.png)
-- Reviewer 边界：只更新 `docs/Review/` 内报告、归档和图示，没有修改业务代码、测试、配置、计划、实现交接或 `AGENTS.md`
-
-## 审查口径
-
-本轮继续只核对讨论文档中的两组“已确认”方案和上一轮两个 P1；条件触发候选 E/F/G 不属于当前实施范围。
+- 计划文档：`docs/Planner/SESSION_TREE_GIT_IMPLEMENTATION_PLAN.md`
+- 审查基线：`dd6dda63413485d82a0e8963570ece91b0844eb1` 加当前未提交 Fixer 改动
+- 上一轮归档：[`REVIEW_SESSION_TREE_GIT_ROUND_2.md`](./REVIEW_SESSION_TREE_GIT_ROUND_2.md)
+- 用例附件：[`REVIEW_SESSION_TREE_GIT_USE_CASE_ROUND_3.svg`](./REVIEW_SESSION_TREE_GIT_USE_CASE_ROUND_3.svg) / [`REVIEW_SESSION_TREE_GIT_USE_CASE_ROUND_3.png`](./REVIEW_SESSION_TREE_GIT_USE_CASE_ROUND_3.png)
+- Reviewer 边界：只更新 `docs/Review/`，未修改业务代码、测试、配置、计划、实现交接或 `AGENTS.md`
 
 ## 审查结论
 
 - [x] PASS
 - [ ] CHANGES_REQUIRED
 
-上一轮两个 P1 均已关闭。最新版没有发现新的 P0/P1：结构化 Tool 终态已经成为默认摘要、降级摘要、内置工具、事件和 SQLite 的统一状态来源；原 1167 行综合测试已按稳定职责拆分，原有 33 个回归测试全部保留，Tool 契约矩阵补齐了取消、异常和跨投影终态一致性。
+上一轮报告提出的两个 P1 已关闭：重复 `task_id` 会在创建可见 user Message 前被拒绝，版本附加链路已统一降级隔离。旧版 5 个 P1 也已在上一轮复核中关闭。本轮没有发现新的阻断性问题，Session 树与 Git 版本关联计划达到当前验收范围。
 
-## 上一轮 P1 复核
+## 本轮复核
 
-### P1-1：结构化终态与审计摘要状态不一致 —— 已关闭
+### P1-1：重复 Task ID 的 Message 关联 —— 已关闭
 
-代码证据：
+`SessionService.ask()` 在写入正常 user Message 前调用 TaskStore 的 `get()` 预检。发现已有 Task 时只保存一个没有 `task_id` 的 `rejected` user Message，并抛出“本次请求未创建新 Task”；不再把本次请求绑定到旧的 success、failed 或 cancelled Task。
 
-- `ToolStatus` 提供统一稳定标签（`src/likai_nexus/tools/contracts.py:28-53`）。
-- Tool 默认审计摘要只读取 `effective_status()`（`src/likai_nexus/tools/base.py:105-110`）。
-- 审计摘要生成失败的降级分支同样读取 `effective_status()`（`src/likai_nexus/executor/projection.py:130-138`）。
-- Bash、read、write、edit 的覆盖摘要均改用相同状态来源。
-- 契约测试断言 TIMEOUT/CANCELLED 在 ToolResult、RuntimeEvent、审计投影和 SQLite 中一致（`tests/unit/test_tool_contract.py:128-179`）。
+AgentLoop 边界仍保留 `TaskAlreadyExistsError` 兜底：并发窗口内若创建 Task 失败，pending Message 会回填为 `rejected` 且保持无 Task 关联。
 
-Reviewer 独立复现两条路径：
+回归覆盖：旧 Task 为 success、failed、cancelled 三种终态时，重复请求均保持旧 Task 终态不变，新 Message 的 `task_id` 为空、`execution_status=rejected`。
 
-```text
-默认摘要路径：Result=timeout，Event=timeout，SQLite=timeout，摘要包含“超时”且不包含“成功”
-摘要故障降级：Result=timeout，SQLite=timeout，降级摘要包含“超时”且不包含“成功”
-```
+### P1-2：版本附加能力故障隔离 —— 已关闭
 
-两条路径都使用显式 `ToolStatus.TIMEOUT` 且保留旧 `is_error` 默认值，确认权威终态不再受兼容字段干扰。
+assistant Message 和成功 Task 保存后，Git 基线读取、审计资格查询、结束快照读取、CommitRepository 保存、版本原因写入均位于旁路降级边界内。任一环节异常只返回安全的“未记录版本”原因，不会让成功的 `ask()` 抛错，也不会覆盖 Task、Message 或会话分支结果。
 
-### P1-2：测试职责拆分和 Tool 契约矩阵不完整 —— 已关闭
+回归覆盖：基线读取故障、审计资格查询故障、Commit 保存故障和版本原因落库故障四类注入场景。
 
-结构复核：
+## 既有问题闭环
 
-| 文件 | 当前规模 | 职责 |
-|---|---:|---|
-| `test_executor_and_projections.py` | 570 行，22 个测试定义 | Registry、Executor、审计安全、事件和投影 |
-| `test_review_modes_and_migrations.py` | 372 行，11 个测试定义 | strict/relaxed/full-access、Runtime 和数据库迁移 |
-| `test_support.py` | 202 行 | 两组测试共享的扩展 Tool、Sink 和组装支持 |
-| `test_tool_contract.py` | 212 行，8 个测试定义 | 名称/规格、状态、取消、异常、展示、模型与审计契约 |
-
-Reviewer 从 Git 基线提取原 `test_next_phase.py` 的 33 个测试名，与两个拆分测试文件逐项比较：数量均为 33，没有删除或改名的原有场景。契约文件新增 TIMEOUT、CANCELLED、执行异常和终态/审计一致性覆盖，全量测试数由上一轮 161 增加到 164。
+| 问题 | 当前结果 | 复核证据 |
+|---|---|---|
+| Git 查询刷新索引 | 已关闭 | `--no-optional-locks` 与 `GIT_OPTIONAL_LOCKS=0` 同时启用；索引字节、mtime、工作树和 refs 前后不变 |
+| 普通 Task 误绑既有 HEAD | 已关闭 | 仅成功 write/edit 审计、可比较且变化的前后 HEAD、结束干净工作区才允许关联 |
+| 失败/取消消息不可追踪 | 已关闭 | user Message 从 pending 回填 Task 与终态；失败重试保存来源消息 ID |
+| 跨 Session continue-from | 已关闭 | 先校验当前 Session 归属，再更新活动叶子；跨 Session 拒绝且两边叶子不变 |
+| 查询缺 Task 与边界提示 | 已关闭 | history/commit 输出 Task、完整 SHA 或安全原因，并固定展示已提交内容边界 |
+| 最近消息时间语义 | 已关闭 | `last_message_at` 与 `updated_at` 分离；标题和分支指针更新不冒充新消息 |
+| 重复 Task ID 错误关联 | 已关闭 | 三种旧 Task 终态回归测试通过 |
+| 版本附加异常阻断成功结果 | 已关闭 | 四类故障注入测试通过 |
 
 ## 非阻断观察
 
-### P2-1：调用展示仍早于参数校验和安全检查
+### P2-1：CommitRepository.record() 未在仓储边界校验 Task 终态
 
-位置：`src/likai_nexus/executor/service.py:78-93`、`src/likai_nexus/executor/service.py:142-146`
+位置：[`src/likai_nexus/storage/commit_repository.py:22`](../../src/likai_nexus/storage/commit_repository.py:22)
 
-`display_arguments()` 与 `tool_started` 仍在 `validate()`、`check_safety()` 之前发生。展示路径已有异常隔离、控制字符清理、脱敏和字节限制，实际执行仍严格经过校验、安全检查和审批，因此没有形成权限绕过或敏感信息阻断项。
+当前 `record()` 只校验 Task 存在和 SHA 格式，不校验 Task 是否为 `success`。生产调用路径由 `SessionService` 在成功 AgentResult 且资格检查通过后调用，因此本轮没有形成可由 CLI 触发的阻断路径；但直接调用仓储仍可给 pending、failed 或 cancelled Task 写入 Commit 关联，破坏计划第 150、152 行的存储不变量。
 
-该项沿用上一轮 P2：后续调整过程事件语义时，可移动到安全检查通过后、执行前；也可以在正式计划中明确调用展示不属于结果投影阶段。本项不阻塞当前本地 CLI 架构优化 PASS。
+建议在仓储边界要求 Task 状态为 `success`，或收紧该方法的可见范围，并把 CLI 集成测试中的手工 Task 置为 success 后再记录 Commit。
 
-## 已确认方案复审矩阵
+### P2-2：SessionService 通过私有对象链读取审计仓储
 
-| 已确认能力 | 当前实现 | 复审判断 |
+位置：[`src/likai_nexus/memory/session.py:270`](../../src/likai_nexus/memory/session.py:270)
+
+`self.agent.executor.audit.repository` 将 Session 领域服务绑定到 AgentLoop、ToolExecutor 和 AuditLifecycle 的内部结构。当前异常被安全降级，功能没有阻断；后续可注入显式的“Task 成功代码修改资格”查询端口，降低替换 AgentLoop 或审计实现时的耦合。
+
+### P2-3：CLI 矩阵仍可补充未记录版本的展示
+
+本轮 CLI 集成测试覆盖了 history、continue-from、commit、switch 的成功关联、边界提示和跨 Session 拒绝。未记录版本、失败消息和取消消息的完整终端文本仍主要由单元/服务测试覆盖，建议后续补一条 CLI 端到端展示测试，但不影响当前计划验收。
+
+## 达成矩阵
+
+| 计划能力 | 当前判断 | 说明 |
 |---|---|---|
-| `likai_nexus.tools` 一级扩展域 | 契约、上下文、Registry 和内置 Tool 已归位 | 通过 |
-| 单一 Tool 执行上下文 | 内置工具共享能力和限制，不再各自解释模式 | 通过 |
-| 结构化 Tool 结果 | status、model、display、audit 分离；终态来源一致 | 通过 |
-| ToolExecutor 职责拆分 | 唯一门面保留，审计和投影职责已委托 | 通过 |
-| 显式注册和无工具名分支 | Runtime 显式组装；Executor、Agent Loop、CLI 无具体 Tool 分支 | 通过 |
-| 中立事件与通用展示 | 顶层事件契约及通用字段 Renderer 已实现 | 通过 |
-| CLI 入口与渲染拆分 | `--no-progress`、审批和退出码兼容测试通过 | 通过 |
-| 配置层纯净 | Settings 不触发 Storage；Runtime/Storage 各负其责 | 通过 |
-| 测试拆分与契约集合 | 原场景无损拆分，必需契约矩阵已补齐 | 通过 |
+| Session 树、活动路径与旧分支保留 | 通过 | 当前路径和兄弟分支隔离正常 |
+| 失败/取消 Message↔Task 追踪 | 通过 | pending 回填、重复拒绝和失败重试关系均有覆盖 |
+| 跨 Session 操作保护 | 通过 | 先校验 Session 归属再更新活动叶子 |
+| 标题生成与失败隔离 | 通过 | 首次成功后串行生成，失败保留默认标题 |
+| 最近消息时间与列表排序 | 通过 | `last_message_at` 独立维护 |
+| Git 索引、工作树和引用零写入 | 通过 | 临时仓库独立复核，索引和 refs 均无变化 |
+| Commit 关联资格 | 通过 | 普通对话、相同 HEAD、dirty 和无写入均不关联 |
+| Commit 查询 Task/SHA/边界提示 | 通过 | CLI 已实现并有集成覆盖 |
+| Commit 失败不影响成功结果 | 通过 | 四类故障注入均返回成功结果 |
+| 自动化验收覆盖 | 通过（仍可扩展） | Session/Git 专项 21 项，全量门禁通过；P2 测试缺口不阻塞 |
 
 ## 验证记录
 
 ```text
-.\.venv\Scripts\python.exe -m pytest tests/unit/test_tool_contract.py tests/unit/test_executor_and_projections.py tests/unit/test_review_modes_and_migrations.py -q -rs
-结果：46 passed（5.02s）
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_session_tree_and_git.py tests/integration/test_session_cli.py -q -rs
+结果：21 passed（4.38s）
 
 .\.venv\Scripts\python.exe -m pytest -q -rs
-结果：164 passed，2 skipped（20.61s）
+结果：186 passed，2 skipped（29.95s）
 跳过项：当前 Windows 环境不允许创建符号链接
 
 .\.venv\Scripts\ruff.exe check .
@@ -99,21 +100,18 @@ Reviewer 从 Git 基线提取原 `test_next_phase.py` 的 33 个测试名，与�
 
 git diff --check
 结果：通过；仅有 Windows LF/CRLF 转换提示
-
-Reviewer 独立复现
-默认摘要和摘要故障降级路径均保持 TIMEOUT/超时一致
-
-测试拆分对比
-原综合文件 33 个测试名与拆分后两个职责文件的 33 个测试名完全一致
-
-Reviewer 用例图
-SVG 通过 XML 解析；使用本机 Edge 以 1500×1080 渲染 PNG，人工目视确认无节点重叠、连线穿越或文字溢出
 ```
 
-独立复现只使用自动清理的临时目录、临时 SQLite 和虚构 Tool，没有读取项目 `.env`、真实凭据、网络或用户数据。
+独立验证使用临时 SQLite、临时 Git 仓库和虚构请求；没有读取 `.env`、真实凭据、网络或用户数据。
+
+## 交接建议
+
+1. Fixer 可在后续维护中补充 P2-1 的 Task 终态边界校验。
+2. 若继续扩展 CLI 覆盖，优先增加未记录版本、失败和取消消息的终端断言。
+3. 本计划当前无需继续阻塞，可以进入提交前审查或下一项需求。
 
 ## 最终意见
 
 **PASS**
 
-两个 P1 已按上一轮复审门槛实质关闭，架构优化的已确认范围已经实现，可以结束本轮 Fixer/Reviewer 循环。P2-1 作为后续过程事件语义优化项保留，不要求继续阻塞当前阶段。
+两个新增 P1 已关闭，上一轮阻断问题全部通过复核；Session 树与 Git Commit 关联计划在当前代码和验收范围内达成。
