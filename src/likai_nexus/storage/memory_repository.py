@@ -90,6 +90,19 @@ class MemoryRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_pending_embeddings(self, limit: int = 100) -> list[dict[str, Any]]:
+        """返回需要创建或重建向量索引的活动记忆。"""
+
+        self._validate_limit(limit)
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM memories WHERE status = 'active' "
+                "AND embedding_status IN ('pending', 'failed') "
+                "ORDER BY updated_at, memory_id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def find_by_source(self, source_type: str, source_ref: str) -> list[dict[str, Any]]:
         """按来源查询记忆，供消息或任务详情回溯。"""
 

@@ -21,6 +21,35 @@
 git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 ```
 
+## 迁移准备层与外部检索适配契约
+
+- 新增 `storage/snapshot.py`，按固定表白名单导出 `PortableSnapshot` JSON，并支持恢复到空 SQLite 数据库；恢复不会覆盖非空目标库，消息父链和 Session 活动叶子在数据写入后单独恢复。
+- 新增 `storage/contracts.py`，以仓储级契约隔离 ContextBuilder；`storage/postgres.py` 提供无驱动绑定的 DB-API PostgreSQL 适配器和快照导入入口，不把 SQL 方言泄漏到上下文层。
+- 新增 `memory/contracts.py`、`memory/retrieval_adapters.py` 和 `memory/postgres_vector.py`，定义 EmbeddingProvider、VectorIndex、pgvector 索引和 GraphMemoryAdapter 契约；本轮补充 `psycopg[binary]`、`pgvector` 可选依赖，Neo4j 仍未引入。
+- ContextBuilder 支持注入向量检索和图扩展；外部向量检索失败时回退 SQLite 本地检索，图扩展失败时保留主检索结果，不阻断普通任务。
+- `runtime.build_postgres_context_builder()` 提供显式 PostgreSQL/pgvector 组装入口，不改变默认 SQLite Runtime；不传 EmbeddingProvider 时仍使用 SQLite 本地检索。
+- `backfill_pending_memories()` 按 `pending/failed` 状态批量写入向量索引，并回写 `ready/failed`，支持迁移后的索引重建。
+- 新增离线 Mock 测试，覆盖快照 JSON 往返、非空目标拒绝、向量适配器参数传递、图召回预算以及外部服务失败降级。
+
+本轮已在本机 Docker 中安装并验证 PostgreSQL 16 与 pgvector 0.8.6，容器使用 `lak-nexus-postgres`，数据卷使用 `lak-nexus-pgdata`，仅暴露本机回环地址；SQLite 仍是默认运行时，Neo4j 保持未安装、未接入。
+
+## PostgreSQL/pgvector 与豆包 Embedding 实施记录
+
+- `src/likai_nexus/models/embedding.py` 提供 OpenAI 兼容 Embeddings HTTP 适配器和 `DoubaoEmbeddingProvider`，通过 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`、`EMBEDDING_DIMENSION` 与超时配置，保留后续切换火山方舟接入点的入口。
+- 请求使用火山方舟文本向量接口的 `model`、`input`、`encoding_format=float` 字段；响应只读取 `data[0].embedding`，并校验维度、有限数值和错误信息脱敏。
+- `create_embedding_provider()` 默认返回 `None`；只有显式设置 `EMBEDDING_PROVIDER=doubao` 且提供 API Key 时才创建 Provider，因此没有真实密钥时不会发起外部请求。
+- 项目虚拟环境已安装 `psycopg[binary]` 与 `pgvector`；实际数据库已执行 `CREATE EXTENSION vector`，并通过 `PostgresDatabase`、`PostgresVectorIndex` 和任务仓储完成最小冒烟验证。
+- 本地容器当前使用回环地址和免密码认证，仅适合开发机验证；迁移到共享环境前必须改为密码或其他受控认证，并通过环境变量注入 DSN，禁止提交密钥。
+
+方案一离线验证：
+
+```text
+.\\.venv\\Scripts\\python.exe -m pytest -q -rs：215 passed，2 skipped
+.\\.venv\\Scripts\\ruff.exe check .：All checks passed!
+.\\.venv\\Scripts\\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
 ## ContextBuilder 与记忆 CLI
 
 - 新增 `memory/context_builder.py`，固定组装顺序为当前活动分支、有效偏好、相似度达标的活动长期记忆和当前任务范围说明；上下文总量、历史消息数、偏好和记忆条数均有上限。

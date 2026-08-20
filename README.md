@@ -39,3 +39,9 @@ likai-nexus memory disable <memory-id>
 ```
 
 当前 ContextBuilder 会把当前 Session 活动分支、有效 SQLite 偏好和本地相似度达标的长期记忆组装给模型；本地相似度检索器是后续接入真实向量数据库前的可替换验证实现。
+
+迁移准备层提供 `SQLiteSnapshotExporter`、`PortableSnapshot` 和 `restore_sqlite_snapshot()`，可在不安装外部数据库的情况下验证 SQLite 数据快照导出与恢复。`storage/postgres.py` 和 `memory/postgres_vector.py` 提供可选的 PostgreSQL/pgvector 适配器，当前默认仍使用 SQLite。
+
+本机已用 Docker 启动 PostgreSQL 16 + pgvector 0.8.6：容器名为 `lak-nexus-postgres`，数据卷为 `lak-nexus-pgdata`，端口只绑定 `127.0.0.1:5432`。Python 驱动安装在项目虚拟环境中，可用 `psycopg[binary]` 和 `pgvector`。
+
+Embedding API 入口为 `models.embedding.create_embedding_provider()` 和 `DoubaoEmbeddingProvider`。在 `.env` 设置 `EMBEDDING_PROVIDER=doubao`、火山方舟 `EMBEDDING_API_KEY`、模型和维度后即可注入 `runtime.build_postgres_context_builder()`；未配置时不会发起外部请求，默认 SQLite Runtime 不变。模型地址、模型名和维度均可配置，后续更换火山方舟接入点不需要改 ContextBuilder。

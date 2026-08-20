@@ -11,6 +11,9 @@ from .events import EventSink
 from .executor.service import ToolExecutor
 from .git import GitReadOnly
 from .memory.context_builder import ContextBuilder
+from .memory.contracts import EmbeddingProvider, GraphMemoryAdapter
+from .memory.postgres_vector import PostgresVectorIndex
+from .memory.retrieval_adapters import VectorMemoryRetriever
 from .memory.session import SessionService
 from .models.base import ModelBackend
 from .models.openai_backend import OpenAICompatibleBackend
@@ -22,6 +25,7 @@ from .storage.audit_repository import AuditRepository
 from .storage.commit_repository import CommitRepository
 from .storage.database import Database
 from .storage.memory_repository import MemoryRepository
+from .storage.postgres import PostgresDatabase
 from .storage.preference_repository import PreferenceRepository
 from .storage.session_repository import SessionRepository
 from .storage.task_repository import TaskRepository
@@ -133,3 +137,30 @@ def build_memory_repository(settings: Settings) -> MemoryRepository:
     database = Database(settings.database_path)
     database.initialize()
     return MemoryRepository(database)
+
+
+def build_postgres_context_builder(
+    connection_factory: Callable[[], object],
+    *,
+    embedding_provider: EmbeddingProvider | None = None,
+    graph_adapter: GraphMemoryAdapter | None = None,
+) -> tuple[PostgresDatabase, ContextBuilder]:
+    """组装可选 PostgreSQL/pgvector 上下文，默认 SQLite Runtime 不受影响。"""
+
+    database = PostgresDatabase(connection_factory)
+    database.initialize()
+    sessions = SessionRepository(database)  # type: ignore[arg-type]
+    preferences = PreferenceRepository(database)  # type: ignore[arg-type]
+    memories = MemoryRepository(database)  # type: ignore[arg-type]
+    retriever = None
+    if embedding_provider is not None:
+        vector_index = PostgresVectorIndex(database, embedding_provider.dimension)
+        vector_index.initialize()
+        retriever = VectorMemoryRetriever(embedding_provider, vector_index)
+    return database, ContextBuilder(
+        sessions,
+        preferences,
+        memories,
+        retriever=retriever,
+        graph_adapter=graph_adapter,
+    )

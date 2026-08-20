@@ -89,6 +89,13 @@ class Settings:
     api_key: str | None = None
     model: str = "gpt-4o-mini"
     api_base_url: str = "https://api.openai.com/v1"
+    postgres_dsn: str = "postgresql://likai@127.0.0.1:5432/likai_nexus"
+    embedding_provider: str = "none"
+    embedding_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    embedding_api_key: str | None = None
+    embedding_model: str = "doubao-embedding-text-240715"
+    embedding_dimension: int = 2560
+    embedding_timeout_seconds: int = 60
     _use_default_database: bool = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -131,6 +138,8 @@ class Settings:
             "max_read_bytes",
             "max_turns",
             "model_timeout_seconds",
+            "embedding_dimension",
+            "embedding_timeout_seconds",
         ):
             if getattr(self, name) <= 0:
                 raise ConfigError(f"配置错误：{name} 必须大于 0")
@@ -193,6 +202,24 @@ class Settings:
             api_key=values.get("OPENAI_API_KEY"),
             model=values.get("MODEL", "gpt-4o-mini"),
             api_base_url=values.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            postgres_dsn=values.get(
+                "POSTGRES_DSN", "postgresql://likai@127.0.0.1:5432/likai_nexus"
+            ),
+            embedding_provider=values.get("EMBEDDING_PROVIDER", "none"),
+            embedding_base_url=values.get(
+                "EMBEDDING_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+            ),
+            embedding_api_key=values.get("EMBEDDING_API_KEY"),
+            embedding_model=values.get(
+                "EMBEDDING_MODEL", "doubao-embedding-text-240715"
+            ),
+            embedding_dimension=_positive_int(
+                values.get("EMBEDDING_DIMENSION", "2560"), "EMBEDDING_DIMENSION"
+            ),
+            embedding_timeout_seconds=_positive_int(
+                values.get("EMBEDDING_TIMEOUT_SECONDS", "60"),
+                "EMBEDDING_TIMEOUT_SECONDS",
+            ),
         )
 
     @property

@@ -51,3 +51,11 @@ class TaskCancelledError(NexusError):
 
 class SessionError(NexusError):
     """会话、消息树或活动分支操作失败。"""
+
+
+class MigrationError(NexusError):
+    """数据快照导出、校验或恢复失败。"""
+
+
+class StorageError(NexusError):
+    """外部存储连接、事务或方言适配失败。"""

@@ -7,13 +7,17 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from ..orchestrator.schemas import ChatMessage
 from ..safety.redaction import redact_text, truncate_text
-from ..storage.memory_repository import MemoryRepository
-from ..storage.preference_repository import PreferenceRepository
-from ..storage.session_repository import SessionRepository
+from ..storage.contracts import (
+    MemoryStore,
+    PreferenceStore,
+    SessionContextStore,
+    validate_memory_rows,
+)
+from .contracts import GraphMemoryAdapter, MemoryCandidate, MemoryRetriever
 
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
 _DEFAULT_HISTORY_MESSAGES = 20
@@ -24,27 +28,10 @@ _MAX_MEMORY_BYTES = 8 * 1024
 _MAX_CONTEXT_BYTES = 14 * 1024
 
 
-@dataclass(frozen=True, slots=True)
-class MemoryCandidate:
-    """检索器返回的记忆 ID 和相似度，正文仍必须回 SQLite 读取。"""
-
-    memory_id: str
-    score: float
-
-
-class MemoryRetriever(Protocol):
-    """长期记忆检索协议，未来可替换为真实向量数据库适配器。"""
-
-    def search(
-        self, query: str, *, threshold: float, limit: int
-    ) -> Sequence[MemoryCandidate]:
-        """返回超过阈值的记忆 ID，不直接返回权威正文。"""
-
-
 class SQLiteMemoryRetriever:
     """SQLite 验证阶段的轻量相似度检索器，后续可替换为向量检索实现。"""
 
-    def __init__(self, repository: MemoryRepository) -> None:
+    def __init__(self, repository: MemoryStore) -> None:
         self.repository = repository
 
     def search(
@@ -82,11 +69,12 @@ class ContextBuilder:
 
     def __init__(
         self,
-        sessions: SessionRepository,
-        preferences: PreferenceRepository,
-        memories: MemoryRepository,
+        sessions: SessionContextStore,
+        preferences: PreferenceStore,
+        memories: MemoryStore,
         *,
         retriever: MemoryRetriever | None = None,
+        graph_adapter: GraphMemoryAdapter | None = None,
         max_history_messages: int = _DEFAULT_HISTORY_MESSAGES,
         memory_threshold: float = _DEFAULT_MEMORY_THRESHOLD,
         memory_limit: int = _DEFAULT_MEMORY_LIMIT,
@@ -100,7 +88,9 @@ class ContextBuilder:
         self.sessions = sessions
         self.preferences = preferences
         self.memories = memories
-        self.retriever = retriever or SQLiteMemoryRetriever(memories)
+        self._sqlite_retriever = SQLiteMemoryRetriever(memories)
+        self.retriever = retriever or self._sqlite_retriever
+        self.graph_adapter = graph_adapter
         self.max_history_messages = max_history_messages
         self.memory_threshold = memory_threshold
         self.memory_limit = memory_limit
@@ -116,14 +106,12 @@ class ContextBuilder:
 
         history = self._history_messages(session_id)
         preferences = self.preferences.list()
-        candidates = self.retriever.search(
-            request_text,
-            threshold=self.memory_threshold,
-            limit=self.memory_limit,
-        )
+        candidates = list(self._search_memories(request_text))
+        candidates = self._expand_graph(candidates)
         memories = self.memories.find_by_ids(
             [candidate.memory_id for candidate in candidates], limit=self.memory_limit
         )
+        validate_memory_rows(memories)
         scores = {candidate.memory_id: candidate.score for candidate in candidates}
         context_message = ChatMessage(
             role="system",
@@ -143,6 +131,46 @@ class ContextBuilder:
             preference_count=len(preferences),
             memory_count=len(memories),
         )
+
+    def _search_memories(self, request_text: str) -> Sequence[MemoryCandidate]:
+        """优先使用外部检索适配器，依赖不可用时回退到 SQLite 验证检索。"""
+
+        try:
+            return self.retriever.search(
+                request_text,
+                threshold=self.memory_threshold,
+                limit=self.memory_limit,
+            )
+        except Exception:
+            if self.retriever is self._sqlite_retriever:
+                raise
+            return self._sqlite_retriever.search(
+                request_text,
+                threshold=self.memory_threshold,
+                limit=self.memory_limit,
+            )
+
+    def _expand_graph(self, candidates: list[MemoryCandidate]) -> list[MemoryCandidate]:
+        """在总预算内追加图关联记忆，图服务不可用时由适配器自行降级。"""
+
+        if self.graph_adapter is None or not candidates:
+            return candidates[: self.memory_limit]
+        seed_ids = [candidate.memory_id for candidate in candidates]
+        remaining = self.memory_limit - len(seed_ids)
+        if remaining <= 0:
+            return candidates[: self.memory_limit]
+        try:
+            related = self.graph_adapter.expand(seed_ids, limit=remaining)
+        except Exception:  # noqa: BLE001
+            return candidates[: self.memory_limit]
+        seen = set(seed_ids)
+        for candidate in related:
+            if candidate.memory_id not in seen:
+                candidates.append(candidate)
+                seen.add(candidate.memory_id)
+            if len(candidates) >= self.memory_limit:
+                break
+        return candidates[: self.memory_limit]
 
     def _history_messages(self, session_id: str) -> tuple[ChatMessage, ...]:
         rows = self.sessions.current_path(session_id)
