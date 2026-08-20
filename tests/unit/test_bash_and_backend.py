@@ -66,6 +66,7 @@ def test_bash_rejects_wsl_path_from_windows_path(monkeypatch, settings) -> None:
     settings = settings.__class__(
         workspace_root=settings.workspace_root,
         database_path=settings.database_path,
+        storage_backend=settings.storage_backend,
         bash_path=None,
     )
     monkeypatch.setattr(
@@ -82,6 +83,7 @@ def test_runtime_rejects_wsl_bash_before_starting_tasks(monkeypatch, settings) -
     settings = settings.__class__(
         workspace_root=settings.workspace_root,
         database_path=settings.database_path,
+        storage_backend=settings.storage_backend,
         bash_path=None,
     )
     monkeypatch.setattr(

@@ -1,4 +1,4 @@
-"""SQLite 用户偏好仓储：保存可覆盖的单用户键值，并与 CLI 本地状态分离。"""
+"""数据库用户偏好仓储：保存可覆盖的单用户键值并供上下文组装使用。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 from ..errors import PreferenceError
 from ..safety.redaction import is_sensitive_key, redact_text
 from .database import Database
+from .postgres import PostgresDatabase
 from .task_repository import utc_now
 
 _KEY_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
@@ -17,9 +18,9 @@ _MAX_VALUE_BYTES = 8 * 1024
 
 
 class PreferenceRepository:
-    """通过 SQLite 读写安全的 JSON 偏好值。"""
+    """通过当前数据库读写安全的 JSON 偏好值。"""
 
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: Database | PostgresDatabase) -> None:
         self.database = database
 
     def get(self, key: str, default: Any = None) -> Any:

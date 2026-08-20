@@ -27,11 +27,11 @@ git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 - 新增 `storage/contracts.py`，以仓储级契约隔离 ContextBuilder；`storage/postgres.py` 提供无驱动绑定的 DB-API PostgreSQL 适配器和快照导入入口，不把 SQL 方言泄漏到上下文层。
 - 新增 `memory/contracts.py`、`memory/retrieval_adapters.py` 和 `memory/postgres_vector.py`，定义 EmbeddingProvider、VectorIndex、pgvector 索引和 GraphMemoryAdapter 契约；本轮补充 `psycopg[binary]`、`pgvector` 可选依赖，Neo4j 仍未引入。
 - ContextBuilder 支持注入向量检索和图扩展；外部向量检索失败时回退 SQLite 本地检索，图扩展失败时保留主检索结果，不阻断普通任务。
-- `runtime.build_postgres_context_builder()` 提供显式 PostgreSQL/pgvector 组装入口，不改变默认 SQLite Runtime；不传 EmbeddingProvider 时仍使用 SQLite 本地检索。
+- `runtime.build_postgres_context_builder()` 保留显式 PostgreSQL/pgvector 组装入口；主运行时现按 `STORAGE_BACKEND` 选择后端，默认使用 PostgreSQL，显式设置 `sqlite` 才回退 SQLite。
 - `backfill_pending_memories()` 按 `pending/failed` 状态批量写入向量索引，并回写 `ready/failed`，支持迁移后的索引重建。
 - 新增离线 Mock 测试，覆盖快照 JSON 往返、非空目标拒绝、向量适配器参数传递、图召回预算以及外部服务失败降级。
 
-本轮已在本机 Docker 中安装并验证 PostgreSQL 16 与 pgvector 0.8.6，容器使用 `lak-nexus-postgres`，数据卷使用 `lak-nexus-pgdata`，仅暴露本机回环地址；SQLite 仍是默认运行时，Neo4j 保持未安装、未接入。
+本轮已在本机 Docker 中安装并验证 PostgreSQL 16 与 pgvector 0.8.6，容器使用 `lak-nexus-postgres`，数据卷使用 `lak-nexus-pgdata`，仅暴露本机回环地址；PostgreSQL 现为默认运行时，Neo4j 保持未安装、未接入。
 
 ## PostgreSQL/pgvector 与豆包 Embedding 实施记录
 
@@ -41,10 +41,18 @@ git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
 - 项目虚拟环境已安装 `psycopg[binary]` 与 `pgvector`；实际数据库已执行 `CREATE EXTENSION vector`，并通过 `PostgresDatabase`、`PostgresVectorIndex` 和任务仓储完成最小冒烟验证。
 - 本地容器当前使用回环地址和免密码认证，仅适合开发机验证；迁移到共享环境前必须改为密码或其他受控认证，并通过环境变量注入 DSN，禁止提交密钥。
 
-方案一离线验证：
+## PostgreSQL 默认存储切换
+
+- `Settings.from_env()` 的 `STORAGE_BACKEND` 默认值改为 `postgres`；三个 CLI 存储入口（任务运行、Session 管理、记忆管理）统一复用运行时后端选择。
+- `STORAGE_BACKEND=sqlite` 保留本地回退路径，测试通过显式 SQLite 配置保持数据库隔离。
+- PostgreSQL 默认运行时已移除启动时 SQLite 自动导入；原 SQLite 主库已归档到 `data/legacy-backup-postgres-cutover-*`，不再作为活动数据源。
+- 本机真实验证已通过归档后的默认 PostgreSQL Session/记忆入口，确认 PG 可独立启动和读取现有数据；SQLite 快照工具仍保留为人工迁移/回滚工具。
+- CLI 的默认审查模式和活动 Session 已改由数据库偏好适配器读写；历史 `data/preferences.json` 仅在首次数据库偏好组装时导入，成功后改名归档，不覆盖已有数据库偏好。
+
+默认 PostgreSQL 切换验证：
 
 ```text
-.\\.venv\\Scripts\\python.exe -m pytest -q -rs：215 passed，2 skipped
+.\\.venv\\Scripts\\python.exe -m pytest -q -rs：219 passed，2 skipped
 .\\.venv\\Scripts\\ruff.exe check .：All checks passed!
 .\\.venv\\Scripts\\python.exe -m compileall -q src：通过
 git diff --check：通过（仅有 Windows LF/CRLF 转换提示）

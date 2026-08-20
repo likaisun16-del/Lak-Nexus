@@ -1,4 +1,4 @@
-"""偏好和应用目录测试：验证模式持久化、脚本目录初始化及旧数据库安全迁移。"""
+"""偏好和应用目录测试：验证目录初始化及显式 SQLite 迁移工具。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,13 @@ from likai_nexus.config import Settings
 from likai_nexus.errors import ConfigError, PathAccessError
 from likai_nexus.runtime import prepare_runtime
 from likai_nexus.safety.review_mode import ReviewMode
-from likai_nexus.storage.preferences import LocalPreferenceStore
+from likai_nexus.storage.app_data import AppDataManager
+from likai_nexus.storage.database import Database
+from likai_nexus.storage.preference_repository import PreferenceRepository
+from likai_nexus.storage.preferences import (
+    DatabasePreferenceStore,
+    migrate_legacy_preference_file,
+)
 from likai_nexus.tools.builtin import build_builtin_tools
 
 
@@ -27,17 +33,39 @@ def _create_database(path: Path, marker: str) -> None:
 
 
 def test_preferences_round_trip_and_corruption_falls_back_to_strict(tmp_path: Path) -> None:
-    store = LocalPreferenceStore(tmp_path / "data" / "preferences.json")
+    database = Database(tmp_path / "data" / "preferences.sqlite3")
+    database.initialize()
+    repository = PreferenceRepository(database)
+    store = DatabasePreferenceStore(repository)
 
     assert store.load_review_mode().mode is None
     store.save_review_mode(ReviewMode.FULL_ACCESS)
     assert store.load_review_mode().mode is ReviewMode.FULL_ACCESS
 
-    store.path.write_text("{broken", encoding="utf-8")
+    repository.set("default_review_mode", "invalid")
     result = store.load_review_mode()
     assert result.mode is None
     assert result.warning is not None
     assert "strict" in result.warning
+
+
+def test_legacy_preference_file_is_migrated_and_archived(tmp_path: Path) -> None:
+    database = Database(tmp_path / "data" / "preferences.sqlite3")
+    database.initialize()
+    path = tmp_path / "data" / "preferences.json"
+    path.write_text(
+        '{"version": 1, "default_review_mode": "relaxed", "active_session_id": "abc-123"}',
+        encoding="utf-8",
+    )
+
+    notices = migrate_legacy_preference_file(PreferenceRepository(database), path)
+    store = DatabasePreferenceStore(PreferenceRepository(database))
+
+    assert "已迁移到数据库" in notices[0]
+    assert not path.exists()
+    assert len(list(path.parent.glob("preferences.json.migrated-*"))) == 1
+    assert store.load_review_mode().mode is ReviewMode.RELAXED
+    assert store.load_active_session_id() == "abc-123"
 
 
 def test_runtime_prepares_data_and_script_directories_idempotently(tmp_path: Path) -> None:
@@ -56,6 +84,23 @@ def test_runtime_prepares_data_and_script_directories_idempotently(tmp_path: Pat
     assert settings.database_path == tmp_path / "data" / "likai_nexus.db"
 
 
+def test_runtime_does_not_migrate_legacy_database_automatically(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    legacy = workspace / "data" / "likai_nexus.db"
+    _create_database(legacy, "legacy")
+    settings = Settings(
+        workspace_root=workspace,
+        project_root=tmp_path,
+        database_path=Path("data/likai_nexus.db"),
+    )
+
+    assert prepare_runtime(settings) == ()
+
+    assert legacy.exists()
+    assert not settings.database_path.exists()
+
+
 def test_legacy_workspace_database_is_migrated_and_backed_up(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -67,7 +112,12 @@ def test_legacy_workspace_database_is_migrated_and_backed_up(tmp_path: Path) -> 
         database_path=Path("data/likai_nexus.db"),
     )
 
-    notices = prepare_runtime(settings)
+    notices = AppDataManager(
+        tmp_path,
+        workspace,
+        settings.database_path,
+        True,
+    ).prepare()
 
     assert settings.database_path.is_file()
     assert not legacy.exists()
@@ -88,7 +138,12 @@ def test_legacy_database_conflict_keeps_secondary_copy(tmp_path: Path) -> None:
     _create_database(second, "second")
     settings = Settings(workspace_root=workspace, project_root=tmp_path)
 
-    notices = prepare_runtime(settings)
+    notices = AppDataManager(
+        tmp_path,
+        workspace,
+        settings.database_path,
+        True,
+    ).prepare()
 
     assert "多个旧数据库" in notices[0]
     with sqlite3.connect(settings.database_path) as connection:
@@ -108,7 +163,12 @@ def test_invalid_legacy_database_stops_without_removing_original(tmp_path: Path)
     settings = Settings(workspace_root=workspace, project_root=tmp_path)
 
     with pytest.raises(ConfigError, match="数据库校验失败"):
-        prepare_runtime(settings)
+        AppDataManager(
+            tmp_path,
+            workspace,
+            settings.database_path,
+            True,
+        ).prepare()
 
     assert legacy.exists()
     assert not settings.database_path.exists()

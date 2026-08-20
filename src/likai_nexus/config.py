@@ -78,6 +78,7 @@ class Settings:
     workspace_root: Path
     project_root: Path | None = None
     database_path: Path | None = None
+    storage_backend: str = "postgres"
     bash_path: Path | None = None
     default_bash_timeout_seconds: int = 30
     max_bash_timeout_seconds: int = 120
@@ -99,6 +100,15 @@ class Settings:
     _use_default_database: bool = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.storage_backend, str):
+            raise ConfigError("配置错误：STORAGE_BACKEND 必须是 sqlite 或 postgres")
+        storage_backend = self.storage_backend.strip().lower()
+        if storage_backend not in {"sqlite", "postgres"}:
+            raise ConfigError(
+                f"配置错误：STORAGE_BACKEND 只支持 sqlite 或 postgres，当前为 {storage_backend!r}"
+            )
+        object.__setattr__(self, "storage_backend", storage_backend)
+
         root = Path(self.workspace_root).expanduser().resolve(strict=False)
         if not root.exists() or not root.is_dir():
             raise ConfigError(f"配置错误：WORKSPACE_ROOT 不是已存在的目录：{root}")
@@ -183,6 +193,7 @@ class Settings:
             workspace_root=Path(workspace_value),
             project_root=project_root,
             database_path=database,
+            storage_backend=values.get("STORAGE_BACKEND", "postgres"),
             bash_path=bash_path,
             default_bash_timeout_seconds=default_timeout,
             max_bash_timeout_seconds=max_timeout,
@@ -236,7 +247,7 @@ class Settings:
 
     @property
     def preference_path(self) -> Path:
-        """本地审查模式偏好文件路径。"""
+        """历史 JSON 偏好文件路径，仅供一次性迁移和归档使用。"""
 
         return self.data_root / "preferences.json"
 

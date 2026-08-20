@@ -22,7 +22,21 @@ def test_config_defaults_max_turns_to_50(tmp_path: Path) -> None:
     settings = Settings.from_env({"WORKSPACE_ROOT": str(tmp_path)})
 
     assert settings.max_turns == 50
+    assert settings.storage_backend == "postgres"
     assert Settings(workspace_root=tmp_path).max_turns == 50
+
+
+def test_config_accepts_explicit_sqlite_fallback(tmp_path: Path) -> None:
+    settings = Settings.from_env(
+        {"WORKSPACE_ROOT": str(tmp_path), "STORAGE_BACKEND": "sqlite"}
+    )
+
+    assert settings.storage_backend == "sqlite"
+
+
+def test_config_rejects_unknown_storage_backend(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="STORAGE_BACKEND"):
+        Settings.from_env({"WORKSPACE_ROOT": str(tmp_path), "STORAGE_BACKEND": "mysql"})
 
 
 def test_invalid_numeric_config_does_not_echo_untrusted_value(tmp_path: Path) -> None:

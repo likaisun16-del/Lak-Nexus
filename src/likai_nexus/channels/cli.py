@@ -11,10 +11,16 @@ from ..config import Settings
 from ..errors import ConfigError, ModelBackendError, SessionError, ValidationError
 from ..events import NullEventSink
 from ..orchestrator.schemas import TaskStatus
-from ..runtime import build_memory_repository, build_runtime, build_session_service, prepare_runtime
+from ..runtime import (
+    build_memory_repository,
+    build_preference_store,
+    build_runtime,
+    build_session_service,
+    prepare_runtime,
+)
 from ..safety.redaction import redact_text, sanitize_terminal_text
 from ..safety.review_mode import ReviewMode
-from ..storage.preferences import LocalPreferenceStore
+from ..storage.preferences import DatabasePreferenceStore
 from .console_renderer import ConsoleEventSink
 
 _COMMIT_BOUNDARY_NOTICE = (
@@ -31,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--review-mode",
         choices=[mode.value for mode in ReviewMode],
         default=None,
-        help="任务审查模式；未指定时沿用本机已保存偏好，首次使用默认 strict",
+        help="任务审查模式；未指定时沿用数据库偏好，首次使用默认 strict",
     )
     parser.add_argument(
         "--no-progress",
@@ -146,8 +152,10 @@ def _run_session_command(argv: list[str]) -> int:
         settings = Settings.from_env()
         for notice in prepare_runtime(settings):
             print(f"[提示] {redact_text(sanitize_terminal_text(notice))}", file=sys.stderr)
+        preferences, preference_notices = build_preference_store(settings)
+        for notice in preference_notices:
+            print(f"[提示] {redact_text(sanitize_terminal_text(notice))}", file=sys.stderr)
         service = build_session_service(settings)
-        preferences = LocalPreferenceStore(settings.preference_path)
         if args.command == "new":
             session = service.create(args.title)
             preferences.save_active_session_id(session["session_id"])
@@ -358,10 +366,9 @@ def _confirm_session_delete(session_id: str, confirmed: bool) -> bool:
     return answer.strip() == "DELETE_SESSION"
 
 
-def _select_review_mode(settings: Settings, explicit_value: str | None):
-    """按显式参数、本地偏好、strict 的优先级选择任务模式。"""
+def _select_review_mode(store: DatabasePreferenceStore, explicit_value: str | None):
+    """按显式参数、数据库偏好、strict 的优先级选择任务模式。"""
 
-    store = LocalPreferenceStore(settings.preference_path)
     stored = store.load_review_mode()
     mode = ReviewMode(explicit_value) if explicit_value is not None else stored.mode
     mode = mode or ReviewMode.STRICT
@@ -394,8 +401,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"[提示] {redact_text(sanitize_terminal_text(notice))}",
                 file=sys.stderr,
             )
+        preferences, preference_notices = build_preference_store(settings)
+        for notice in preference_notices:
+            print(
+                f"[提示] {redact_text(sanitize_terminal_text(notice))}",
+                file=sys.stderr,
+            )
         mode, full_access_confirmed, save_confirmation, preference_warning = _select_review_mode(
-            settings, args.review_mode
+            preferences, args.review_mode
         )
         if preference_warning:
             print(
@@ -412,13 +425,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         if runtime.sessions is None:
             raise SessionError("任务启动失败：运行时未配置 Session 服务")
-        session_id = _resolve_session_id(runtime.sessions, settings, args.session_id)
+        session_id = _resolve_session_id(runtime.sessions, preferences, args.session_id)
         session_result = asyncio.run(
             runtime.sessions.ask(session_id, request_text, task_id=task_id)
         )
         result = session_result.result
         if result.status is not TaskStatus.CANCELLED:
-            LocalPreferenceStore(settings.preference_path).save_active_session_id(session_id)
+            preferences.save_active_session_id(session_id)
     except KeyboardInterrupt:
         if runtime is not None:
             try:
@@ -465,10 +478,13 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if result.status.value == "success" else 1
 
 
-def _resolve_session_id(service, settings: Settings, explicit_session_id: str | None) -> str:
-    """选择显式、偏好或新建的 Session；调用方在任务完成后持久化选择。"""
+def _resolve_session_id(
+    service,
+    preferences: DatabasePreferenceStore,
+    explicit_session_id: str | None,
+) -> str:
+    """选择显式、数据库偏好或新建的 Session。"""
 
-    preferences = LocalPreferenceStore(settings.preference_path)
     if explicit_session_id:
         return service.switch(explicit_session_id)["session_id"]
     stored_id = preferences.load_active_session_id()

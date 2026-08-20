@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 
 from likai_nexus.channels.cli import main
+from likai_nexus.runtime import build_preference_store
 from likai_nexus.storage.commit_repository import CommitRepository
 from likai_nexus.storage.database import Database
-from likai_nexus.storage.preferences import LocalPreferenceStore
 from likai_nexus.storage.session_repository import SessionRepository
 from likai_nexus.storage.task_repository import TaskRepository
 
@@ -58,7 +58,7 @@ def test_session_cli_history_continue_commit_and_switch(monkeypatch, settings, c
         task_id="cli-task",
     )
     commits.record("cli-task", "a" * 40)
-    preferences = LocalPreferenceStore(settings.preference_path)
+    preferences, _ = build_preference_store(settings)
     preferences.save_active_session_id(first["session_id"])
 
     assert main(["session", "history", first["session_id"]]) == 0

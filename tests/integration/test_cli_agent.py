@@ -14,11 +14,11 @@ from likai_nexus.errors import ConfigError, ModelBackendError
 from likai_nexus.events import NullEventSink, RuntimeEvent
 from likai_nexus.models.fake import FakeModelBackend
 from likai_nexus.orchestrator.schemas import AssistantTurn
+from likai_nexus.runtime import build_preference_store, prepare_runtime
 from likai_nexus.runtime import build_runtime as real_build_runtime
-from likai_nexus.runtime import prepare_runtime
 from likai_nexus.safety.approval import ApprovalRequest, CliApprovalHandler, StaticApprovalHandler
 from likai_nexus.safety.review_mode import ReviewMode
-from likai_nexus.storage.preferences import LocalPreferenceStore
+from likai_nexus.storage.preferences import DatabasePreferenceStore
 
 
 def test_cli_parser_accepts_unquoted_task_words() -> None:
@@ -209,7 +209,8 @@ def test_cli_persists_full_access_and_switches_default_mode(monkeypatch, setting
     assert modes == [ReviewMode.FULL_ACCESS, ReviewMode.FULL_ACCESS, ReviewMode.STRICT, ReviewMode.STRICT]
     assert len(approvals[0].requests) == 1
     assert len(approvals[1].requests) == 0
-    assert LocalPreferenceStore(settings.preference_path).load_review_mode().mode is ReviewMode.STRICT
+    preferences, _ = build_preference_store(settings)
+    assert preferences.load_review_mode().mode is ReviewMode.STRICT
     with sqlite3.connect(settings.database_path) as connection:
         sources = [row[0] for row in connection.execute(
             "SELECT decision_source FROM approvals WHERE action_type = 'full_access_session'"
@@ -240,7 +241,8 @@ def test_cli_without_preference_defaults_strict_and_relaxed_can_be_persisted(
     assert main(["沿用宽松模式"]) == 0
 
     assert selected == [ReviewMode.STRICT, ReviewMode.RELAXED, ReviewMode.RELAXED]
-    assert LocalPreferenceStore(settings.preference_path).load_review_mode().mode is ReviewMode.RELAXED
+    preferences, _ = build_preference_store(settings)
+    assert preferences.load_review_mode().mode is ReviewMode.RELAXED
 
 
 def test_cli_corrupt_preference_falls_back_to_strict(monkeypatch, settings, capsys) -> None:
@@ -275,7 +277,7 @@ def test_cli_full_access_preference_save_failure_stops_before_task_and_model(
     def fail_save(self, mode):
         raise OSError("偏好磁盘不可写")
 
-    monkeypatch.setattr(LocalPreferenceStore, "save_review_mode", fail_save)
+    monkeypatch.setattr(DatabasePreferenceStore, "save_review_mode", fail_save)
 
     def build_fake_runtime(config, **kwargs):
         return real_build_runtime(

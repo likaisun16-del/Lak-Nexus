@@ -87,6 +87,15 @@ class PostgresDatabase:
             for statement in POSTGRES_SCHEMA_STATEMENTS:
                 connection.execute(statement)
 
+    def is_empty(self) -> bool:
+        """检查业务表是否为空，供一次性 SQLite 快照迁移避免覆盖已有 PG 数据。"""
+
+        with self.connection() as connection:
+            return all(
+                connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is None
+                for table in PORTABLE_TABLES
+            )
+
     @contextmanager
     def connection(self) -> Iterator[PostgresConnection]:
         """建立一笔事务；连接失败信息不包含 DSN、密码或 Token。"""

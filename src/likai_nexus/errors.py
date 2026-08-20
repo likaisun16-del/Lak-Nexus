@@ -10,7 +10,7 @@ class ConfigError(NexusError):
 
 
 class PreferenceError(ConfigError):
-    """本地偏好读取或保存失败。"""
+    """用户偏好读取、保存或迁移失败。"""
 
 
 class ValidationError(NexusError):
