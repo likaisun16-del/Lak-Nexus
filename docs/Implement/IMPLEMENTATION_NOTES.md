@@ -1,5 +1,42 @@
 # Implementer 实现交接记录
 
+## SQLite 五层记忆最小存储验证
+
+依据 `docs/Planner/MINIMAL_FIVE_LAYER_MEMORY_STORAGE_PLAN.md` 的简化范围完成：
+
+- 继续复用现有 SQLite `sessions/messages/tasks/tool_calls/approvals/task_commits`，未安装或接入 PostgreSQL、Neo4j 和向量数据库。
+- `Database.initialize()` 新增 `preferences`、`memories` 两张表及来源、状态、重要性、索引状态和活动内容哈希约束。
+- 新增 `PreferenceRepository`，支持 JSON 偏好读取、覆盖、删除、列表和损坏回退；系统来源不能覆盖用户来源，敏感键和值拒绝入库。
+- 新增 `MemoryRepository`，支持长期记忆创建、读取、活动列表、来源查询、ID 回表、更新、禁用和 embedding 状态记录；活动内容按 SHA-256 去重，正文更新后索引状态回到 `pending`。
+- `Runtime` 暴露 `preferences` 和 `memories` 仓储，暂不改变现有 CLI JSON 偏好行为，避免影响审查模式和活动 Session 兼容逻辑。
+- `task_steps`、真实向量检索和 Neo4j 图投影暂未实现，等待 SQLite 数据模型验证后再单独实施。
+
+本轮验证：
+
+```text
+.\\.venv\\Scripts\\python.exe -m pytest tests\\unit\\test_memory_storage.py -q：9 passed
+.\\.venv\\Scripts\\python.exe -m pytest -q -rs：195 passed，2 skipped
+.\\.venv\\Scripts\\ruff.exe check .：All checks passed!
+.\\.venv\\Scripts\\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
+## ContextBuilder 与记忆 CLI
+
+- 新增 `memory/context_builder.py`，固定组装顺序为当前活动分支、有效偏好、相似度达标的活动长期记忆和当前任务范围说明；上下文总量、历史消息数、偏好和记忆条数均有上限。
+- `SessionService` 在运行时注入 ContextBuilder；手动构造 SessionService 的旧调用仍沿用原始历史上下文，保持测试和扩展调用方兼容。
+- SQLite 阶段使用可替换的 `MemoryRetriever` 协议和本地词项相似度检索器，不宣称已经接入真实向量数据库；未来只替换检索适配器，正文继续从 SQLite 回表读取。
+- CLI 新增 `memory add/list/show/update/disable`，长期记忆只能由用户显式命令写入，模型没有自动写记忆入口。
+
+本轮验证：
+
+```text
+.\\.venv\\Scripts\\python.exe -m pytest -q -rs：199 passed，2 skipped
+.\\.venv\\Scripts\\ruff.exe check .：All checks passed!
+.\\.venv\\Scripts\\python.exe -m compileall -q src：通过
+git diff --check：通过（仅有 Windows LF/CRLF 转换提示）
+```
+
 ## 最大模型轮次调整
 
 - 将运行配置、`.env` 模板和 `AgentLoop` 直接构造时的默认最大模型轮次统一从 20 调整为 50。

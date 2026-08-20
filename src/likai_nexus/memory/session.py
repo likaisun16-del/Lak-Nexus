@@ -15,6 +15,7 @@ from ..orchestrator.schemas import AgentResult, ChatMessage, TaskStatus
 from ..safety.redaction import redact_text, truncate_text
 from ..storage.commit_repository import CommitRepository
 from ..storage.session_repository import DEFAULT_SESSION_TITLE, SessionRepository
+from .context_builder import ContextBuilder
 
 _TITLE_SYSTEM_PROMPT = (
     "请根据下面首轮用户问题和最终回答生成一个简短中文会话标题。"
@@ -63,12 +64,14 @@ class SessionService:
         backend: ModelBackend | None = None,
         commits: CommitRepository | None = None,
         git_reader: GitReadOnly | None = None,
+        context_builder: ContextBuilder | None = None,
     ) -> None:
         self.repository = repository
         self.agent = agent
         self.backend = backend
         self.commits = commits
         self.git_reader = git_reader
+        self.context_builder = context_builder
 
     def create(self, title: str = DEFAULT_SESSION_TITLE) -> dict[str, Any]:
         """创建会话并返回稳定标识。"""
@@ -146,11 +149,18 @@ class SessionService:
         session = self.repository.get(session_id)
         if session is None:
             raise ValueError(f"Session 问答失败：Session 不存在：{session_id}")
-        history = self.repository.current_path(session_id)
-        context = tuple(
-            ChatMessage(role=item["role"], content=item["content"]) for item in history
-        )
         effective_task_id = task_id or uuid.uuid4().hex
+        if self.context_builder is not None:
+            context = self.context_builder.build(
+                session_id,
+                request_text,
+                task_context={"task_id": effective_task_id, "status": "pending"},
+            ).messages
+        else:
+            history = self.repository.current_path(session_id)
+            context = tuple(
+                ChatMessage(role=item["role"], content=item["content"]) for item in history
+            )
         self._reject_duplicate_task_if_needed(
             session_id, request_text, session["active_leaf_id"], effective_task_id
         )

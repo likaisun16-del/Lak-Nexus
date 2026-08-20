@@ -10,6 +10,7 @@ from .errors import ConfigError, ToolExecutionError
 from .events import EventSink
 from .executor.service import ToolExecutor
 from .git import GitReadOnly
+from .memory.context_builder import ContextBuilder
 from .memory.session import SessionService
 from .models.base import ModelBackend
 from .models.openai_backend import OpenAICompatibleBackend
@@ -20,6 +21,8 @@ from .storage.app_data import AppDataManager
 from .storage.audit_repository import AuditRepository
 from .storage.commit_repository import CommitRepository
 from .storage.database import Database
+from .storage.memory_repository import MemoryRepository
+from .storage.preference_repository import PreferenceRepository
 from .storage.session_repository import SessionRepository
 from .storage.task_repository import TaskRepository
 from .tools.builtin import build_builtin_tools
@@ -33,6 +36,8 @@ class Runtime:
     agent: AgentLoop
     tasks: TaskRepository
     sessions: SessionService | None = None
+    preferences: PreferenceRepository | None = None
+    memories: MemoryRepository | None = None
 
 
 def prepare_runtime(settings: Settings) -> tuple[str, ...]:
@@ -71,6 +76,8 @@ def build_runtime(
     database.initialize()
     tasks = TaskRepository(database)
     tasks.recover_running()
+    preferences = PreferenceRepository(database)
+    memories = MemoryRepository(database)
     audit = AuditRepository(database)
     executor = ToolExecutor(
         registry, approval_handler, audit, mode, event_sink
@@ -87,14 +94,23 @@ def build_runtime(
         full_access_confirmed=full_access_confirmed,
         on_full_access_confirmed=on_full_access_confirmed,
     )
+    session_repository = SessionRepository(database)
+    context_builder = ContextBuilder(session_repository, preferences, memories)
     sessions = SessionService(
-        SessionRepository(database),
+        session_repository,
         agent=agent,
         backend=model_backend,
         commits=CommitRepository(database),
         git_reader=GitReadOnly(settings.project_root),
+        context_builder=context_builder,
     )
-    return Runtime(agent=agent, tasks=tasks, sessions=sessions)
+    return Runtime(
+        agent=agent,
+        tasks=tasks,
+        sessions=sessions,
+        preferences=preferences,
+        memories=memories,
+    )
 
 
 def build_session_service(settings: Settings) -> SessionService:
@@ -108,3 +124,12 @@ def build_session_service(settings: Settings) -> SessionService:
         commits=CommitRepository(database),
         git_reader=GitReadOnly(settings.project_root),
     )
+
+
+def build_memory_repository(settings: Settings) -> MemoryRepository:
+    """组装无需模型调用的长期记忆仓储，供 CLI 管理命令使用。"""
+
+    prepare_runtime(settings)
+    database = Database(settings.database_path)
+    database.initialize()
+    return MemoryRepository(database)

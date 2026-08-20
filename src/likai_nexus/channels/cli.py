@@ -8,10 +8,10 @@ import sys
 import uuid
 
 from ..config import Settings
-from ..errors import ConfigError, ModelBackendError, SessionError
+from ..errors import ConfigError, ModelBackendError, SessionError, ValidationError
 from ..events import NullEventSink
 from ..orchestrator.schemas import TaskStatus
-from ..runtime import build_runtime, build_session_service, prepare_runtime
+from ..runtime import build_memory_repository, build_runtime, build_session_service, prepare_runtime
 from ..safety.redaction import redact_text, sanitize_terminal_text
 from ..safety.review_mode import ReviewMode
 from ..storage.preferences import LocalPreferenceStore
@@ -75,6 +75,34 @@ def _build_session_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_memory_parser() -> argparse.ArgumentParser:
+    """构建长期记忆管理命令，记忆写入必须由用户显式发起。"""
+
+    parser = argparse.ArgumentParser(prog="likai-nexus memory", description="长期记忆管理")
+    commands = parser.add_subparsers(dest="command", required=True)
+    add = commands.add_parser("add", help="新增长期记忆")
+    add.add_argument("content", nargs="+", help="记忆正文")
+    add.add_argument("--type", dest="memory_type", choices=("fact", "project", "lesson"), required=True)
+    add.add_argument(
+        "--source-type",
+        choices=("user", "conversation", "task", "system"),
+        default="user",
+    )
+    add.add_argument("--source-ref", default=None, help="conversation/task 来源的消息或任务 ID")
+    add.add_argument("--importance", type=float, default=0.5)
+    list_parser = commands.add_parser("list", help="列出活动长期记忆")
+    list_parser.add_argument("--limit", type=int, default=100)
+    show = commands.add_parser("show", help="查看一条长期记忆")
+    show.add_argument("memory_id")
+    update = commands.add_parser("update", help="更新长期记忆")
+    update.add_argument("memory_id")
+    update.add_argument("--content", default=None)
+    update.add_argument("--importance", type=float, default=None)
+    disable = commands.add_parser("disable", help="禁用一条长期记忆")
+    disable.add_argument("memory_id")
+    return parser
+
+
 def _session_command_index(argv: list[str]) -> int | None:
     """识别位于全局选项之后的 session 命令，保留旧版自然语言入口。"""
 
@@ -88,6 +116,22 @@ def _session_command_index(argv: list[str]) -> int | None:
             index += 2
             continue
         return index if token == "session" else None
+    return None
+
+
+def _management_command_index(argv: list[str]) -> int | None:
+    """识别位于全局选项之后的 Session 或 memory 管理命令。"""
+
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "--no-progress":
+            index += 1
+            continue
+        if token in {"--review-mode", "--session-id"}:
+            index += 2
+            continue
+        return index if token in {"session", "memory"} else None
     return None
 
 
@@ -177,6 +221,81 @@ def _run_session_command(argv: list[str]) -> int:
     return 2
 
 
+def _run_memory_command(argv: list[str]) -> int:
+    """执行无需模型调用的长期记忆管理命令。"""
+
+    command_index = _management_command_index(argv)
+    if command_index is None:
+        return 2
+    args = _build_memory_parser().parse_args(argv[command_index + 1 :])
+    try:
+        settings = Settings.from_env()
+        for notice in prepare_runtime(settings):
+            print(f"[提示] {redact_text(sanitize_terminal_text(notice))}", file=sys.stderr)
+        repository = build_memory_repository(settings)
+        if args.command == "add":
+            memory = repository.create(
+                args.memory_type,
+                " ".join(args.content).strip(),
+                args.source_type,
+                args.source_ref,
+                args.importance,
+            )
+            print(f"记忆已保存：{memory['memory_id']}，类型={memory['memory_type']}")
+            return 0
+        if args.command == "list":
+            for memory in repository.list_active(args.limit):
+                _print_memory(memory)
+            return 0
+        if args.command == "show":
+            memory = repository.get(args.memory_id)
+            if memory is None:
+                raise ValidationError(f"记忆读取失败：记忆不存在：{args.memory_id}")
+            _print_memory(memory)
+            return 0
+        if args.command == "update":
+            if args.content is None and args.importance is None:
+                raise ValidationError("记忆更新失败：至少提供 --content 或 --importance")
+            memory = repository.update(
+                args.memory_id, content=args.content, importance=args.importance
+            )
+            print(f"记忆已更新：{memory['memory_id']}")
+            return 0
+        if args.command == "disable":
+            if not repository.disable(args.memory_id):
+                raise ValidationError(f"记忆禁用失败：活动记忆不存在：{args.memory_id}")
+            print(f"记忆已禁用：{args.memory_id}")
+            return 0
+    except (ConfigError, ValidationError) as exc:
+        print(
+            redact_text(sanitize_terminal_text(f"Memory 命令失败：{type(exc).__name__}: {exc}")),
+            file=sys.stderr,
+        )
+        return 2
+    except (EOFError, KeyboardInterrupt):
+        print("Memory 命令已取消", file=sys.stderr)
+        return 130
+    except Exception as exc:  # noqa: BLE001
+        print(
+            redact_text(sanitize_terminal_text(f"Memory 命令启动失败：{type(exc).__name__}: {exc}")),
+            file=sys.stderr,
+        )
+        return 1
+    return 2
+
+
+def _print_memory(memory: dict[str, object]) -> None:
+    """以固定字段展示记忆，避免把内部数据库对象直接交给终端。"""
+
+    content = redact_text(sanitize_terminal_text(str(memory["content"])))
+    source_ref = memory.get("source_ref") or "-"
+    print(
+        f"{memory['memory_id']}\t类型={memory['memory_type']}\t状态={memory['status']}\t"
+        f"重要性={memory['importance']}\t索引={memory['embedding_status']}\t"
+        f"来源={memory['source_type']}:{source_ref}\t内容={content}"
+    )
+
+
 def _print_session_history(service, session_id: str) -> int:
     """只展示当前活动路径中的可见消息和稳定标识。"""
 
@@ -259,7 +378,10 @@ def main(argv: list[str] | None = None) -> int:
     """CLI 进程入口，返回明确退出码并把可定位错误输出到 stderr。"""
 
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    if _session_command_index(raw_argv) is not None:
+    management_index = _management_command_index(raw_argv)
+    if management_index is not None:
+        if raw_argv[management_index] == "memory":
+            return _run_memory_command(raw_argv)
         return _run_session_command(raw_argv)
     args = build_parser().parse_args(raw_argv)
     request_text = " ".join(args.request).strip()

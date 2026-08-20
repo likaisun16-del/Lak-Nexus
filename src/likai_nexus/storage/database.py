@@ -36,6 +36,35 @@ class Database:
                     error_type TEXT,
                     error_message TEXT
                 );
+                CREATE TABLE IF NOT EXISTS preferences (
+                    preference_key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    source TEXT NOT NULL CHECK (source IN ('user', 'system')),
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS memories (
+                    memory_id TEXT PRIMARY KEY,
+                    memory_type TEXT NOT NULL CHECK (
+                        memory_type IN ('fact', 'project', 'lesson')
+                    ),
+                    content TEXT NOT NULL,
+                    source_type TEXT NOT NULL CHECK (
+                        source_type IN ('user', 'conversation', 'task', 'system')
+                    ),
+                    source_ref TEXT,
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (
+                        status IN ('active', 'disabled')
+                    ),
+                    importance REAL NOT NULL DEFAULT 0.5 CHECK (
+                        importance >= 0.0 AND importance <= 1.0
+                    ),
+                    content_hash TEXT NOT NULL,
+                    embedding_status TEXT NOT NULL DEFAULT 'pending' CHECK (
+                        embedding_status IN ('pending', 'ready', 'failed')
+                    ),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS tool_calls (
                     audit_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL REFERENCES tasks(task_id),
@@ -93,6 +122,13 @@ class Database:
                     ON messages(parent_message_id);
                 CREATE INDEX IF NOT EXISTS idx_task_commits_task
                     ON task_commits(task_id);
+                CREATE INDEX IF NOT EXISTS idx_memories_source
+                    ON memories(source_type, source_ref);
+                CREATE INDEX IF NOT EXISTS idx_memories_status_updated
+                    ON memories(status, updated_at DESC);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_active_hash
+                    ON memories(content_hash)
+                    WHERE status = 'active';
                 """
             )
             self._migrate_tasks(connection)

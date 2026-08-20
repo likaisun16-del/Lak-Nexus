@@ -27,3 +27,15 @@ Windows 运行 Bash 工具时请在 `.env` 配置 Git Bash 的 `BASH_PATH`；程
 `workspace/data/likai_nexus.db` 和 `workspace/.likai_nexus/tasks.db` 会在默认数据库首次启动时安全迁移并保留备份。
 
 `MAX_READ_BYTES` 限制 read 正文且必须至少为 4；最终模型消息会为 read 状态信封预留 128 字节，因此 read 的实际正文上限为 `min(MAX_READ_BYTES, MAX_OUTPUT_BYTES - 128)`。`MAX_OUTPUT_BYTES` 必须至少为 132。
+
+SQLite 版本支持用户显式管理长期记忆：
+
+```powershell
+likai-nexus memory add --type project "本项目先使用 SQLite 验证"
+likai-nexus memory list
+likai-nexus memory show <memory-id>
+likai-nexus memory update <memory-id> --content "更新后的记忆"
+likai-nexus memory disable <memory-id>
+```
+
+当前 ContextBuilder 会把当前 Session 活动分支、有效 SQLite 偏好和本地相似度达标的长期记忆组装给模型；本地相似度检索器是后续接入真实向量数据库前的可替换验证实现。
